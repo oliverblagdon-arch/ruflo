@@ -1,0 +1,41 @@
+{
+  "name": "AI Video Pipeline — scheduled producer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "hours", "hoursInterval": 8 }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "command": "=cd /opt/ai-video-pipeline && npm run produce -- --topics topics.json"
+      },
+      "id": "produce",
+      "name": "Produce + publish",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [520, 300]
+    }
+  ],
+  "connections": {
+    "Every 8h": {
+      "main": [
+        [
+          { "node": "Produce + publish", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false,
+  "_comment": "Minimal scheduling spine. The CLI does the real work; n8n just triggers it on a cadence. Swap the Execute Command for an SSH node if n8n runs on a different host than the pipeline. Edit /opt/ai-video-pipeline to your install path."
+}
