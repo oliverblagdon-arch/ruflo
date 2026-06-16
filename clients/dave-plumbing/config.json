@@ -1,0 +1,14 @@
+{
+  "clientName": "Dave's Plumbing",
+  "clientSlug": "dave-plumbing",
+  "tradeType": "plumber",
+  "ownerFirstName": "Dave",
+  "location": "Manchester",
+  "phoneNumber": "+447700000000",
+  "googleReviewLink": "https://g.page/r/XXXXXXX/review",
+  "emailAddress": "dave@davesplumbing.co.uk",
+  "timezone": "Europe/London",
+  "smsEnabled": true,
+  "emailEnabled": true,
+  "reviewRequestDelayHours": 3
+}

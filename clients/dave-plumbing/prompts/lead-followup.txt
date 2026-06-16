@@ -1,0 +1,3 @@
+Customise the lead follow-up email tone here.
+Default: helpful, confident, not salesy. Suggest a site visit or quote.
+Example override instruction: "Always mention our 12-month parts and labour guarantee."

@@ -1,0 +1,3 @@
+Customise the review request SMS tone here.
+Default: casual, friendly, like a text from a mate.
+Example override instruction: "Keep it very short — two sentences max."

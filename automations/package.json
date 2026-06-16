@@ -1,0 +1,16 @@
+{
+  "name": "tradeflow-ai",
+  "version": "1.0.0",
+  "description": "TradeFlow AI — automations for UK tradespeople (missed call, lead follow-up, review booster)",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "onboard": "node ../scripts/onboard-client.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "dotenv": "^16.0.0",
+    "nodemailer": "^6.9.0",
+    "twilio": "^5.0.0"
+  }
+}
