@@ -1,6 +1,6 @@
 # Ruflo Plugins
 
-32 Claude Code plugins for agent-powered development workflows. Load with `--plugin-dir`.
+34 Claude Code plugins for agent-powered development workflows. Load with `--plugin-dir`.
 
 ## Quick Start
 
