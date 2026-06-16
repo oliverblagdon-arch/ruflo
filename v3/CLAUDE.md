@@ -13,7 +13,7 @@ npm install && npm run build && npm test
 
 | Package | Path | Purpose |
 |---------|------|---------|
-| `@claude-flow/cli` | `@claude-flow/cli/` | CLI entry point (26 commands, 140+ subcommands) |
+| `@claude-flow/cli` | `@claude-flow/cli/` | CLI entry point (~40 commands, 140+ subcommands) |
 | `@claude-flow/guidance` | `@claude-flow/guidance/` | Governance control plane (compile, enforce, prove, evolve) |
 | `@claude-flow/hooks` | `@claude-flow/hooks/` | 17 hooks + 12 background workers |
 | `@claude-flow/memory` | `@claude-flow/memory/` | AgentDB + HNSW vector search |

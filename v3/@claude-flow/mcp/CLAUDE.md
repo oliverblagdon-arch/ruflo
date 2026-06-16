@@ -278,7 +278,12 @@ Bash("npx @claude-flow/cli@latest hooks worker dispatch --trigger optimize")
 - **HNSW**: Enabled
 - **Neural**: Enabled
 
-## 🚀 V3 CLI Commands (26 Commands, 140+ Subcommands)
+## 🚀 V3 CLI Commands (~40 Commands, 140+ Subcommands)
+
+> Source of truth is `v3/@claude-flow/cli/src/commands/`. Beyond the core/advanced
+> commands below, recent additions include: `autopilot`, `route`, `guidance`,
+> `appliance`, `gaia-bench`, `analyze`, `cleanup`, `issues`, `progress`,
+> `transfer-store`, `verify`, and `agent-wasm`. Run `npx ruflo --help` to enumerate.
 
 ### Core Commands
 
