@@ -1,8 +1,28 @@
-# Claude Code Configuration - Ruflo v3.5
+# Claude Code Configuration - Ruflo v3.11
 
-> **Ruflo v3.6** (2026-04-29) — Stable release with agent federation and comms-first coordination.
-> 6,000+ commits, 314 MCP tools, 16 agent roles + custom types, 19 AgentDB controllers, 21 native plugins.
-> Packages: `@claude-flow/cli@3.6.10`, `claude-flow@3.6.10`, `ruflo@3.6.10`
+> **Ruflo v3.11.0** — Stable release with agent federation, comms-first coordination,
+> router observability (ADR-148/149), cost-tracker, and 34 Claude Code native plugins.
+> 6,000+ commits, 300+ MCP tools, 60+ agent roles + custom types, 19 AgentDB controllers.
+> Packages: `@claude-flow/cli@3.11.0`, `claude-flow@3.11.0`, `ruflo@3.11.0`
+> Primary npm entry point for users: `npx ruflo` (thin wrapper → `@claude-flow/cli`).
+
+## Repository Layout (Top-Level)
+
+| Path | What it is |
+|------|------------|
+| `v3/@claude-flow/*` | The monorepo packages (CLI, memory, hooks, neural, security, etc.) — real source |
+| `v3/@claude-flow/cli/` | CLI entry point — all commands in `src/commands/` (~40), MCP tools in `src/mcp-tools/` |
+| `bin/cli.js` | Umbrella entry — proxies to `v3/@claude-flow/cli/bin/cli.js` |
+| `ruflo/` | The thin `ruflo` npm wrapper users actually run (`npx ruflo`) |
+| `plugins/ruflo-*` | 34 Claude Code native plugins (agents/commands/hooks/skills) — see Plugin Marketplace |
+| `.claude-plugin/` | Marketplace manifest (`marketplace.json`), `plugin.json`, hooks, scripts |
+| `.claude/` | Project-local agents, commands, helpers, settings shipped with the package |
+| `.agents/` | Codex CLI agent config (see `AGENTS.md`) |
+| `video-pipeline/` | Standalone modular AI video production + publishing pipeline (idea → render → publish) |
+| `docs/`, `tests/`, `scripts/`, `data/` | Docs, RVF tests, audit scripts, clone-data ledgers |
+
+> The root has TWO companion guides: `AGENTS.md` (OpenAI Codex CLI workflow) and
+> `CLAUDE.local.md` (private, un-checked-in env/registry notes). Keep all three consistent.
 
 ## Behavioral Rules (Always Enforced)
 
@@ -34,16 +54,48 @@
 - Use event sourcing for state changes
 - Ensure input validation at system boundaries
 
-### Key Packages
+### Key Packages (`v3/@claude-flow/`)
 
 | Package | Path | Purpose |
 |---------|------|---------|
-| `@claude-flow/cli` | `v3/@claude-flow/cli/` | CLI entry point (26 commands) |
-| `@claude-flow/codex` | `v3/@claude-flow/codex/` | Dual-mode Claude + Codex collaboration |
-| `@claude-flow/guidance` | `v3/@claude-flow/guidance/` | Governance control plane |
-| `@claude-flow/hooks` | `v3/@claude-flow/hooks/` | 17 hooks + 12 workers |
-| `@claude-flow/memory` | `v3/@claude-flow/memory/` | AgentDB + HNSW search |
-| `@claude-flow/security` | `v3/@claude-flow/security/` | Input validation, CVE remediation |
+| `@claude-flow/cli` | `cli/` | CLI entry point (~40 commands, 140+ subcommands) |
+| `@claude-flow/cli-core` | `cli-core/` | Shared CLI primitives (parser, runtime) |
+| `@claude-flow/shared` | `shared/` | Shared types and utilities |
+| `@claude-flow/codex` | `codex/` | Dual-mode Claude + Codex collaboration |
+| `@claude-flow/guidance` | `guidance/` | Governance control plane (compile, enforce, prove, evolve) |
+| `@claude-flow/hooks` | `hooks/` | 17 hooks + 12 background workers |
+| `@claude-flow/memory` | `memory/` | AgentDB + HNSW vector search |
+| `@claude-flow/neural` | `neural/` | SONA / MoE / EWC++ neural learning |
+| `@claude-flow/security` | `security/` | Input validation, CVE remediation |
+| `@claude-flow/aidefence` | `aidefence/` | Prompt-injection / PII defence |
+| `@claude-flow/mcp` | `mcp/` | MCP server + transport |
+| `@claude-flow/providers` | `providers/` | AI provider adapters |
+| `@claude-flow/integration` | `integration/` | agentic-flow + token optimizer integration |
+| `@claude-flow/embeddings` | `embeddings/` | Vector embeddings (sql.js, ONNX) |
+| `@claude-flow/performance` | `performance/` | Profiling + benchmarking |
+| `@claude-flow/deployment` | `deployment/` | Deploy / rollback / environments |
+| `@claude-flow/browser` | `browser/` | Playwright browser automation |
+| `@claude-flow/plugin-agent-federation` | `plugin-agent-federation/` | Cross-machine agent federation |
+| `@claude-flow/plugin-iot-cognitum` | `plugin-iot-cognitum/` | IoT / Cognitum integration |
+
+> When in doubt about a package's real surface, read its `package.json` and `src/` — do
+> not trust this table over the code. Each package builds with `npm run build` (tsc).
+
+### Build, Test & Lint (root `package.json`)
+
+| Command | What it does |
+|---------|--------------|
+| `npm run build` | Compile root TypeScript (`tsc`) |
+| `npm run build:ts` | Build the CLI package (`cd v3/@claude-flow/cli && npm run build`) |
+| `npm test` | Run the Vitest suite (RVF + integration tests in `tests/`) |
+| `npm run test:security` | Security-focused tests (`v3/__tests__/security/`) |
+| `npm run lint` | Lint the CLI package (eslint) |
+| `npm run security:audit` | `npm audit --audit-level high` (target: 0 production vulns) |
+
+- Node **>=20**, TypeScript 5, ESM (`"type": "module"`). Tests use **Vitest** (not Jest).
+- Per-package work: `cd v3/@claude-flow/<pkg> && npm install && npm run build && npm test`.
+- The `scripts/` dir holds many `audit-*.mjs` invariant checks — run the relevant one
+  after touching hooks, codex, env-var precedence, or neural-trader safety.
 
 ## Concurrency: 1 MESSAGE = ALL RELATED OPERATIONS
 
@@ -345,7 +397,12 @@ This project is configured with Claude Flow V3 (Anti-Drift Defaults):
 - **HNSW Indexing**: Enabled (measured ~1.9x at N=20k, ~3.2x–4.7x at N=5k vs brute force; ANN wins above the crossover)
 - **Neural Learning**: Enabled (SONA)
 
-## V3 CLI Commands (26 Commands, 140+ Subcommands)
+## V3 CLI Commands (~40 Commands, 140+ Subcommands)
+
+> Source of truth is `v3/@claude-flow/cli/src/commands/`. Beyond the core/advanced
+> commands below, recent additions include: `autopilot`, `route`, `guidance`,
+> `claims`, `appliance`, `gaia-bench`, `analyze`, `cleanup`, `issues`, `progress`,
+> `transfer-store`, `verify`, and `agent-wasm`. Run `npx ruflo --help` to enumerate.
 
 ### Core Commands
 
@@ -949,7 +1006,8 @@ memory_search_unified({ query: "authentication security", limit: 5 })
 - MUST run verification for ALL THREE before telling user publishing is complete
 
 ```bash
-# Replace 3.7.1 below with your chosen stable version (patch/minor/major per the rules above)
+# Current published version is 3.11.0. Replace 3.7.1 below with your chosen NEXT stable
+# version (patch/minor/major per the rules above) — all three packages stay in lockstep.
 
 # STEP 1: Build and publish @claude-flow/cli
 cd v3/@claude-flow/cli
@@ -960,7 +1018,7 @@ npm dist-tag add @claude-flow/cli@3.7.1 alpha     # historical compat
 npm dist-tag add @claude-flow/cli@3.7.1 v3alpha   # historical compat
 
 # STEP 2: Publish claude-flow umbrella
-cd /Users/cohen/Projects/ruflo                    # or your repo root
+cd "$(git rev-parse --show-toplevel)"             # repo root (do NOT hardcode a local path)
 npm version 3.7.1 --no-git-tag-version
 npm publish
 npm dist-tag add claude-flow@3.7.1 alpha
@@ -1014,9 +1072,14 @@ gh release create v3.7.1 --title "v3.7.1 — <one-line headline>" \
   --notes-file /tmp/release-notes.md
 ```
 
-## Plugin Registry Maintenance (IPFS/Pinata)
+## Plugin Registry Maintenance (IPFS/Pinata) — Legacy CLI registry
 
-The plugin registry is stored on IPFS via Pinata for decentralized, immutable distribution.
+> **NOTE:** This IPFS/Pinata flow powers the legacy `npx ruflo plugins install
+> @claude-flow/<name>` CLI command. The PRIMARY, current distribution model is the
+> Claude Code native plugin marketplace (`plugins/ruflo-*` + `.claude-plugin/marketplace.json`)
+> — see "Claude Code Plugin Marketplace" below. Use the IPFS flow only for the legacy CLI registry.
+
+The legacy plugin registry is stored on IPFS via Pinata for decentralized, immutable distribution.
 
 ### Registry Location
 - **Current CID**: Stored in `v3/@claude-flow/cli/src/plugins/store/discovery.ts`
@@ -1105,71 +1168,61 @@ export const LIVE_REGISTRY_CID = 'NEW_CID_FROM_PINATA';
 curl -s "https://gateway.pinata.cloud/ipfs/{NEW_CID}" | jq '.totalPlugins'
 ```
 
-## Optional Plugins (20 Available)
+## Claude Code Plugin Marketplace (Primary — 34 native plugins)
 
-Plugins are distributed via IPFS and can be installed with the CLI. Browse and install from the official registry:
-
-```bash
-# List all available plugins
-npx claude-flow@v3alpha plugins list
-
-# Install a plugin
-npx claude-flow@v3alpha plugins install @claude-flow/plugin-name
-
-# Enable/disable
-npx claude-flow@v3alpha plugins enable @claude-flow/plugin-name
-npx claude-flow@v3alpha plugins disable @claude-flow/plugin-name
-```
-
-### Core Plugins
-
-| Plugin | Version | Description |
-|--------|---------|-------------|
-| `@claude-flow/embeddings` | 3.0.0-alpha.1 | Vector embeddings with sql.js, HNSW, hyperbolic support |
-| `@claude-flow/security` | 3.0.0-alpha.1 | Input validation, path security, CVE remediation |
-| `@claude-flow/claims` | 3.0.0-alpha.8 | Claims-based authorization (check, grant, revoke, list) |
-| `@claude-flow/neural` | 3.0.0-alpha.7 | Neural pattern training (SONA, MoE, EWC++) |
-| `@claude-flow/plugins` | 3.0.0-alpha.1 | Plugin system core (manager, discovery, store) |
-| `@claude-flow/performance` | 3.0.0-alpha.1 | Performance profiling and benchmarking |
-
-### Integration Plugins
-
-| Plugin | Version | Description |
-|--------|---------|-------------|
-| `@claude-flow/plugin-agentic-qe` | 3.0.0-alpha.4 | Agentic quality engineering integration |
-| `@claude-flow/plugin-prime-radiant` | 0.1.5 | Prime Radiant intelligence integration |
-| `@claude-flow/plugin-gastown-bridge` | 3.0.0-alpha.1 | Gastown bridge protocol integration |
-| `@claude-flow/teammate-plugin` | 1.0.0-alpha.1 | Multi-agent teammate coordination |
-| `@claude-flow/plugin-code-intelligence` | 0.1.0 | Advanced code analysis and intelligence |
-| `@claude-flow/plugin-test-intelligence` | 0.1.0 | Intelligent test generation and gap analysis |
-| `@claude-flow/plugin-perf-optimizer` | 0.1.0 | Performance optimization automation |
-| `@claude-flow/plugin-neural-coordinator` | 0.1.0 | Neural network coordination across agents |
-| `@claude-flow/plugin-cognitive-kernel` | 0.1.0 | Core cognitive processing kernel |
-| `@claude-flow/plugin-quantum-optimizer` | 0.1.0 | Quantum-inspired optimization algorithms |
-| `@claude-flow/plugin-hyperbolic-reasoning` | 0.1.0 | Hyperbolic space reasoning for hierarchical data |
-
-### Domain-Specific Plugins
-
-| Plugin | Version | Description |
-|--------|---------|-------------|
-| `@claude-flow/plugin-healthcare-clinical` | 0.1.0 | Healthcare clinical workflow automation |
-| `@claude-flow/plugin-financial-risk` | 0.1.0 | Financial risk assessment and modeling |
-| `@claude-flow/plugin-legal-contracts` | 0.1.0 | Legal contract analysis and generation |
-
-### Plugin Development
+The current plugin model ships **34 Claude Code native plugins** in `plugins/ruflo-*`,
+each a self-contained bundle of `agents/`, `commands/`, `hooks/`, and `skills/`. They are
+registered in `.claude-plugin/marketplace.json` (marketplace name: `ruflo`) and loaded
+directly by Claude Code with `--plugin-dir` — no IPFS/registry round-trip needed.
 
 ```bash
-# Create a new plugin from template
-npx claude-flow@v3alpha plugins create my-plugin
+# Load specific plugins
+claude --plugin-dir plugins/ruflo-core --plugin-dir plugins/ruflo-swarm
 
-# Test locally
-npx claude-flow@v3alpha plugins install ./path/to/my-plugin
-
-# Publish to registry (requires Pinata credentials)
-npx claude-flow@v3alpha plugins publish
+# Load all plugins at once
+claude $(ls -d plugins/ruflo-*/ | sed 's|^|--plugin-dir |' | tr '\n' ' ')
 ```
 
-Registry source: IPFS via Pinata (`QmXbfEAaR7D2Ujm4GAkbwcGZQMHqAMpwDoje4583uNP834`)
+Each plugin has its own `.claude-plugin/plugin.json` (name, version, description, keywords).
+`ruflo-core` is the foundation — it registers the `ruflo` MCP server (300+ tools) plus the
+three generalist agents (`coder`, `researcher`, `reviewer`) and a plugin-discovery catalog.
+
+### Plugin Catalog (source of truth: `plugins/README.md` + `.claude-plugin/marketplace.json`)
+
+| Group | Plugins |
+|-------|---------|
+| Core & Coordination | `ruflo-core`, `ruflo-swarm`, `ruflo-autopilot`, `ruflo-loop-workers`, `ruflo-workflows` |
+| Memory & Intelligence | `ruflo-agentdb`, `ruflo-rag-memory`, `ruflo-rvf`, `ruflo-ruvector`, `ruflo-knowledge-graph`, `ruflo-intelligence`, `ruflo-daa` |
+| Architecture & Methodology | `ruflo-adr`, `ruflo-ddd`, `ruflo-sparc` |
+| Quality & Security | `ruflo-security-audit`, `ruflo-aidefence`, `ruflo-testgen`, `ruflo-browser` |
+| Dev Tools & Ops | `ruflo-jujutsu`, `ruflo-migrations`, `ruflo-plugin-creator`, `ruflo-docs`, `ruflo-observability`, `ruflo-cost-tracker`, `ruflo-graph-intelligence` |
+| Federation & Domain | `ruflo-federation`, `ruflo-iot-cognitum`, `ruflo-agent`, `ruflo-goals`, `ruflo-arena`, `ruflo-ruvllm`, `ruflo-market-data`, `ruflo-neural-trader` |
+
+> Always confirm the live list with `ls -d plugins/ruflo-*` — plugins are added over time.
+
+## Video Pipeline (`video-pipeline/`)
+
+A **standalone, self-hosted** subproject (its own `package.json`, `tsconfig.json`, and
+`README.md`) — not part of the published npm packages. It turns an idea into a published
+short-form video: idea → script → voiceover → stock visuals → burned captions →
+platform-formatted render → publish (YouTube / Instagram Reels / TikTok).
+
+- Every stage is a swappable adapter behind a typed interface — stage contracts in
+  `video-pipeline/src/types.ts`, provider wiring in `video-pipeline/src/config.ts`.
+- Providers: OpenAI/Anthropic (script), OpenAI/ElevenLabs (TTS), Whisper (captions),
+  Pexels (stock), FFmpeg (assembly). Requires `ffmpeg`/`ffprobe` on PATH.
+- Run from inside `video-pipeline/`: `npm install` then
+  `npm run produce -- --idea "..." --no-publish` (dry run) or `--topics topics.example.json`.
+- Honest scope per its README: ~85–90% hands-off for faceless assembly-style content;
+  two manual touchpoints remain (quality check + TikTok publish).
+
+### Adding / editing a native plugin
+
+1. Create `plugins/ruflo-<name>/` with `.claude-plugin/plugin.json` and any of
+   `agents/`, `commands/`, `hooks/`, `skills/`.
+2. Register it in `.claude-plugin/marketplace.json` (`name` + `source` + `description`).
+3. Update `plugins/README.md` catalog table.
+4. Smoke-test with the `plugin-contract-audit` / `full-system-test` skills.
 
 ## Support
 
