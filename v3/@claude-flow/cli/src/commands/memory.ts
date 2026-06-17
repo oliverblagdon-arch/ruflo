@@ -1498,13 +1498,72 @@ const importCommand: Command = {
       ]);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Import error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      // MCP unavailable — import directly via storeEntry for JSON files
+      output.printInfo('MCP not available — importing directly into database...');
+
+      try {
+        const fs = await import('fs');
+        if (!fs.existsSync(inputPath)) {
+          output.printError(`File not found: ${inputPath}`);
+          return { success: false, exitCode: 1 };
+        }
+
+        const raw = fs.readFileSync(inputPath, 'utf8');
+        let parsed: any;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          output.printError('Import file is not valid JSON. Only JSON files can be imported without MCP.');
+          return { success: false, exitCode: 1 };
+        }
+
+        const entries: any[] = Array.isArray(parsed) ? parsed : (parsed.entries ?? []);
+        if (!Array.isArray(entries) || entries.length === 0) {
+          output.printError('No entries found in import file. Expected { entries: [...] } or an array.');
+          return { success: false, exitCode: 1 };
+        }
+
+        const { storeEntry, resolveDbPath: _rdbImport } = await import('../memory/memory-initializer.js');
+        const dbPath = _rdbImport(ctx.flags.path as string | undefined);
+        const merge = ctx.flags.merge !== false;
+        const nsOverride = ctx.flags.namespace as string | undefined;
+
+        let imported = 0;
+        let skipped = 0;
+        let failed = 0;
+
+        for (const entry of entries) {
+          const key = entry.key;
+          const value = typeof entry.value === 'string' ? entry.value : typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.value ?? entry.content ?? '');
+          const namespace = nsOverride ?? entry.namespace ?? 'default';
+
+          if (!key) { failed++; continue; }
+
+          const result = await storeEntry({ key, value, namespace, dbPath, upsert: !merge, generateEmbeddingFlag: false });
+          if (result.success) {
+            imported++;
+          } else if (merge && result.error?.includes('UNIQUE')) {
+            skipped++;
+          } else if (!result.success) {
+            // upsert=true (merge=false means replace) — count as imported even on update
+            if (!merge) imported++; else failed++;
+          }
+        }
+
+        output.printSuccess(`Import complete`);
+        output.printList([
+          `Entries imported: ${imported}`,
+          `Skipped (duplicates): ${skipped}`,
+          `Failed: ${failed}`,
+          `Mode: ${merge ? 'merge (skip duplicates)' : 'replace'}`
+        ]);
+
+        return { success: true, data: { imported, skipped, failed } };
+      } catch (directError) {
+        output.printError(`Import failed: ${directError instanceof Error ? directError.message : String(directError)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
