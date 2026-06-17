@@ -290,13 +290,99 @@ const diffCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Diff analysis failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      output.printInfo('MCP not available — running local git diff analysis...');
+      try {
+        const statRaw = execSync(`git diff --stat ${ref} 2>/dev/null || git diff --stat HEAD 2>/dev/null`, {
+          encoding: 'utf-8',
+          maxBuffer: 4 * 1024 * 1024,
+        });
+
+        const nameStatusRaw = execSync(`git diff --name-status ${ref} 2>/dev/null || git diff --name-status HEAD 2>/dev/null`, {
+          encoding: 'utf-8',
+          maxBuffer: 4 * 1024 * 1024,
+        });
+
+        const parsedFiles = nameStatusRaw.trim().split('\n').filter(Boolean).map(line => {
+          const parts = line.split('\t');
+          return { status: parts[0]?.trim() ?? '?', path: parts[parts.length - 1]?.trim() ?? '' };
+        });
+
+        const summaryLine = statRaw.trim().split('\n').pop() ?? '';
+        const addMatch = summaryLine.match(/(\d+) insertion/);
+        const delMatch = summaryLine.match(/(\d+) deletion/);
+        const additions = addMatch ? parseInt(addMatch[1]) : 0;
+        const deletions = delMatch ? parseInt(delMatch[1]) : 0;
+        const totalChanges = additions + deletions;
+
+        const highRiskFiles = parsedFiles
+          .filter(f => /(auth|security|password|secret|token|key|crypt)/i.test(f.path))
+          .map(f => f.path);
+
+        const riskScore = Math.min(100, Math.round(
+          (parsedFiles.length * 2) + (totalChanges / 10) + (highRiskFiles.length * 15)
+        ));
+        const riskLevel = riskScore < 20 ? 'low' : riskScore < 50 ? 'medium' : riskScore < 75 ? 'high' : 'critical';
+
+        const offlineResult = {
+          ref,
+          files: parsedFiles.map(f => ({ path: f.path, status: f.status, additions: 0, deletions: 0, binary: false })),
+          risk: {
+            overall: riskLevel,
+            score: riskScore,
+            breakdown: { fileCount: parsedFiles.length, totalChanges, highRiskFiles, securityConcerns: [], breakingChanges: [], testCoverage: 'unknown' },
+          },
+          classification: { category: 'unknown', confidence: 0, reasoning: 'offline — MCP unavailable' },
+          recommendedReviewers: [],
+          summary: `${parsedFiles.length} files changed, ${additions} insertions, ${deletions} deletions`,
+          offline: true,
+        };
+
+        if (formatType === 'json') {
+          output.printJson(offlineResult);
+          return { success: true, data: offlineResult };
+        }
+
+        output.writeln();
+        output.printBox(
+          [
+            `Ref: ${ref}`,
+            `Files: ${parsedFiles.length}`,
+            `Risk: ${getRiskDisplay(riskLevel)} (${riskScore}/100)`,
+            ``,
+            offlineResult.summary,
+          ].join('\n'),
+          'Diff Analysis (offline)'
+        );
+
+        if (parsedFiles.length > 0) {
+          output.writeln();
+          output.writeln(output.bold('Files Changed'));
+          output.writeln(output.dim('-'.repeat(50)));
+          output.printTable({
+            columns: [
+              { key: 'status', header: 'Status', width: 10, format: (v) => getStatusDisplay(String(v)) },
+              { key: 'path', header: 'File', width: 55 },
+            ],
+            data: parsedFiles.slice(0, 30),
+          });
+          if (parsedFiles.length > 30) {
+            output.writeln(output.dim(`  ... and ${parsedFiles.length - 30} more files`));
+          }
+        }
+
+        if (highRiskFiles.length > 0) {
+          output.writeln();
+          output.writeln(output.bold(output.warning('Sensitive Files')));
+          output.printList(highRiskFiles.map(f => output.warning(f)));
+        }
+
+        output.printWarning('Full risk/classification analysis requires MCP. Start MCP for complete results.');
+        return { success: true, data: offlineResult };
+      } catch (gitError) {
+        output.printError(`Offline diff fallback failed: ${String(gitError)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   },
 };
