@@ -744,8 +744,50 @@ const memoryCommand: Command = {
 
       return { success: true, data: result };
     } catch {
-      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
-      return { success: true, data: { offline: true, skipped: true } };
+      output.printInfo('MCP not available — reading memory stats from local DB (offline)...');
+      try {
+        const { getDirectStats } = await import('../memory/memory-initializer.js');
+        const stats = await getDirectStats();
+        if (!stats.success) {
+          output.printInfo(stats.error ?? 'No local DB found');
+          return { success: true, data: { offline: true } };
+        }
+        output.writeln();
+        output.writeln(output.bold('Memory Status (offline)'));
+        output.writeln();
+        output.printTable({
+          columns: [
+            { key: 'property', header: 'Property', width: 20 },
+            { key: 'value', header: 'Value', width: 35 }
+          ],
+          data: [
+            { property: 'Backend', value: 'sqlite (direct)' },
+            { property: 'Total Entries', value: stats.totalEntries.toLocaleString() },
+            { property: 'With Embeddings', value: stats.entriesWithEmbeddings.toLocaleString() },
+            { property: 'DB Size', value: `${Math.round(stats.dbSizeBytes / 1024)} KB` },
+            { property: 'DB Path', value: stats.dbPath },
+            { property: 'Oldest Entry', value: stats.oldestEntry ?? 'N/A' },
+            { property: 'Newest Entry', value: stats.newestEntry ?? 'N/A' },
+          ]
+        });
+        if (stats.namespaces.length > 0) {
+          output.writeln();
+          output.writeln(output.bold('Namespaces'));
+          output.printTable({
+            columns: [
+              { key: 'namespace', header: 'Namespace', width: 20 },
+              { key: 'count', header: 'Entries', width: 10, align: 'right' },
+              { key: 'withEmbeddings', header: 'Vectors', width: 10, align: 'right' }
+            ],
+            data: stats.namespaces
+          });
+        }
+        output.printWarning('Performance metrics and V3 gains require MCP. Start MCP for full memory status.');
+        return { success: true, data: { offline: true, ...stats } };
+      } catch (fallbackErr) {
+        output.printError(`Memory status unavailable: ${String(fallbackErr)}`);
+        return { success: false, exitCode: 1 };
+      }
     }
   }
 };
