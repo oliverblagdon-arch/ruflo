@@ -28,10 +28,11 @@ describe('callMCPTool offline guard', () => {
 
   it('throws MCPClientError when CLAUDE_FLOW_OFFLINE=true', async () => {
     process.env.CLAUDE_FLOW_OFFLINE = 'true';
-    // Dynamic import so the env var is visible at module evaluation time
+    // Dynamic import so the env var is visible at module evaluation time.
+    // mcp-client.ts has a heavy import chain; allow 15s for the fresh import.
     const { callMCPTool, MCPClientError } = await import('../src/mcp-client.js');
     await expect(callMCPTool('hooks_list', {})).rejects.toBeInstanceOf(MCPClientError);
-  });
+  }, 15000);
 
   it('includes tool name in the error message when offline', async () => {
     process.env.CLAUDE_FLOW_OFFLINE = 'true';
@@ -39,7 +40,7 @@ describe('callMCPTool offline guard', () => {
     const err = await callMCPTool('hooks_metrics', {}).catch(e => e);
     expect(err).toBeInstanceOf(MCPClientError);
     expect(err.message).toContain('hooks_metrics');
-  });
+  }, 15000);
 
   it('does NOT throw for offline guard when CLAUDE_FLOW_OFFLINE is unset', async () => {
     delete process.env.CLAUDE_FLOW_OFFLINE;
@@ -48,7 +49,7 @@ describe('callMCPTool offline guard', () => {
     const err = await callMCPTool('nonexistent_tool_xyz', {}).catch(e => e);
     // Should fail with "not found", not "Offline mode"
     expect(err.message).not.toMatch(/[Oo]ffline mode/);
-  });
+  }, 15000);
 });
 
 // ---------------------------------------------------------------------------
