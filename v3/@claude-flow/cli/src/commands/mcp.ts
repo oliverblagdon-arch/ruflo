@@ -625,7 +625,12 @@ const execCommand: Command = {
 
       return { success: true, data: { tool, params, result, duration } };
     } catch (error) {
-      output.printError(`Tool execution failed: ${(error as Error).message}`);
+      const msg = (error as Error).message;
+      if (msg.includes('Offline mode')) {
+        output.printWarning(`Offline — MCP tool '${tool}' skipped. Remove --offline or unset CLAUDE_FLOW_OFFLINE to run tools.`);
+        return { success: true, data: { offline: true, tool, skipped: true } };
+      }
+      output.printError(`Tool execution failed: ${msg}`);
       return { success: false, exitCode: 1 };
     }
   }
