@@ -837,10 +837,8 @@ const statsCommand: Command = {
     {
       name: 'format',
       short: 'f',
-      description: 'Output format (table, json)',
-      type: 'string',
-      choices: ['table', 'json'],
-      default: 'table'
+      description: 'Output format (json for machine-readable output, default: table)',
+      type: 'string'
     }
   ],
   examples: [
