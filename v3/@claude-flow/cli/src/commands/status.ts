@@ -202,7 +202,10 @@ async function getSystemStatus(): Promise<{
       }
     };
   } catch (error) {
-    // System not running
+    // MCP not running — fall back to direct DB read for memory data
+    const { getDirectStats } = await import('../memory/memory-initializer.js');
+    const directStats = await getDirectStats().catch(() => null);
+
     return {
       initialized: true,
       running: false,
@@ -215,15 +218,15 @@ async function getSystemStatus(): Promise<{
       },
       mcp: { running: false, port: null, transport: 'stdio' },
       memory: {
-        entries: 0,
-        size: '0 B',
-        backend: 'none',
+        entries: directStats?.totalEntries ?? 0,
+        size: directStats ? formatBytes(directStats.dbSizeBytes) : '0 B',
+        backend: directStats?.success ? 'sqlite (direct)' : 'none',
         performance: { searchTime: 0, cacheHitRate: 0 }
       },
       tasks: { total: 0, pending: 0, running: 0, completed: 0, failed: 0 },
       performance: {
-        cpuUsage: 0,
-        memoryUsage: 0,
+        cpuUsage: getProcessCpuUsage(),
+        memoryUsage: getProcessMemoryUsage(),
         flashAttention: 'N/A',
         searchSpeed: 'N/A'
       }
