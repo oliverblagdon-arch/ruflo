@@ -411,6 +411,18 @@ const statusAction = async (ctx: CommandContext): Promise<CommandResult> => {
   return { success: true, data: status };
 };
 
+// Get free disk bytes for cwd (best-effort, falls back to 0)
+async function getDiskFreeBytes(): Promise<number> {
+  try {
+    const { execSync } = await import('child_process');
+    const out = execSync("df -Pk . | tail -1 | awk '{print $4}'", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+    const kb = parseInt(out.trim(), 10);
+    return isNaN(kb) ? 0 : kb * 1024;
+  } catch {
+    return 0;
+  }
+}
+
 // Perform health checks
 async function performHealthCheck(
   status: Awaited<ReturnType<typeof getSystemStatus>>
@@ -421,14 +433,45 @@ async function performHealthCheck(
 
   const checks: Array<{ name: string; status: 'pass' | 'fail' | 'warn'; message: string }> = [];
 
-  // Check if system is running
+  // --- Always-available checks (no MCP required) ---
+
+  // Node.js version
+  const nodeVer = process.versions.node;
+  const nodeMajor = parseInt(nodeVer.split('.')[0], 10);
   checks.push({
-    name: 'System Running',
-    status: status.running ? 'pass' : 'fail',
-    message: status.running ? 'System is running' : 'System is not running'
+    name: 'Node.js Version',
+    status: nodeMajor >= 20 ? 'pass' : nodeMajor >= 18 ? 'warn' : 'fail',
+    message: `v${nodeVer}${nodeMajor < 20 ? ' (20+ recommended)' : ''}`
   });
 
-  // Check swarm health
+  // Memory database accessible
+  checks.push({
+    name: 'Memory Database',
+    status: status.memory.backend !== 'none' ? 'pass' : 'warn',
+    message: status.memory.backend !== 'none'
+      ? `${status.memory.entries} entries, ${status.memory.size} (${status.memory.backend})`
+      : 'No database found — run "ruflo memory init"'
+  });
+
+  // Disk space (warn below 500 MB free)
+  const diskFree = await getDiskFreeBytes();
+  const diskFreeMB = diskFree / (1024 * 1024);
+  checks.push({
+    name: 'Disk Space',
+    status: diskFreeMB > 500 ? 'pass' : diskFreeMB > 100 ? 'warn' : 'fail',
+    message: `${formatBytes(diskFree)} free`
+  });
+
+  // MCP server
+  checks.push({
+    name: 'MCP Server',
+    status: status.mcp.running ? 'pass' : 'warn',
+    message: status.mcp.running
+      ? (status.mcp.transport === 'stdio' ? 'Running (stdio mode)' : `Running on port ${status.mcp.port}`)
+      : 'Not running (offline mode active)'
+  });
+
+  // --- MCP-dependent checks ---
   if (status.running) {
     checks.push({
       name: 'Swarm Health',
@@ -437,7 +480,6 @@ async function performHealthCheck(
       message: `Swarm is ${status.swarm.health}`
     });
 
-    // Check agent count
     checks.push({
       name: 'Agents Available',
       status: status.swarm.agents.active > 0 ? 'pass' :
@@ -445,23 +487,6 @@ async function performHealthCheck(
       message: `${status.swarm.agents.active} active, ${status.swarm.agents.idle} idle`
     });
 
-    // Check MCP
-    checks.push({
-      name: 'MCP Server',
-      status: status.mcp.running ? 'pass' : 'warn',
-      message: status.mcp.running
-        ? (status.mcp.transport === 'stdio' ? 'Running (stdio mode)' : `Running on port ${status.mcp.port}`)
-        : 'Not running'
-    });
-
-    // Check memory backend
-    checks.push({
-      name: 'Memory Backend',
-      status: status.memory.backend !== 'none' ? 'pass' : 'fail',
-      message: `Using ${status.memory.backend} backend`
-    });
-
-    // Check for failed tasks
     const failRate = status.tasks.total > 0
       ? status.tasks.failed / status.tasks.total
       : 0;
