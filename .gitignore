@@ -162,3 +162,7 @@ hive-mind-prompt-*.txt
 .env.*
 !.env.example
 !.env.*.example
+
+# AgentDB runtime files created during test/dev execution
+*.rvf
+*.rvf.lock
