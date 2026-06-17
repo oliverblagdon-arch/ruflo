@@ -85,14 +85,76 @@ const checkCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Progress check failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — computing progress from local filesystem...');
+
+      try {
+        const { readdirSync, statSync } = await import('fs');
+        const { join, resolve } = await import('path');
+
+        const countFiles = (dir: string, ext: string): number => {
+          try {
+            let count = 0;
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+              if (entry.isDirectory()) {
+                count += countFiles(join(dir, entry.name), ext);
+              } else if (entry.name.endsWith(ext)) {
+                count++;
+              }
+            }
+            return count;
+          } catch {
+            return 0;
+          }
+        };
+
+        const cliSrc = resolve(new URL('../commands/', import.meta.url).pathname);
+        const commandFiles = countFiles(cliSrc, '.ts');
+        const totalSrc = countFiles(resolve(new URL('../', import.meta.url).pathname), '.ts');
+
+        const { getDirectStats } = await import('../memory/memory-initializer.js');
+        const stats = await getDirectStats();
+
+        const cliProgress = Math.min(100, Math.round((commandFiles / 26) * 100));
+        const memProgress = Math.min(100, stats.totalEntries > 0 ? 100 : 0);
+        const overall = Math.round((cliProgress + memProgress) / 2);
+
+        const offlineResult = {
+          overall,
+          cli: { progress: cliProgress, commands: commandFiles, target: 26 },
+          codebase: { totalFiles: totalSrc, totalLines: 0 },
+          memory: { entries: stats.totalEntries, namespaces: stats.namespaces.length },
+          lastUpdated: new Date().toISOString(),
+          offline: true,
+        };
+
+        if (ctx.flags.format === 'json') {
+          output.printJson(offlineResult);
+          return { success: true, data: offlineResult };
+        }
+
+        output.writeln();
+        output.writeln(output.bold('V3 Implementation Progress') + output.dim(' (offline estimate)'));
+        output.writeln();
+        output.writeln(progressBar(overall, 30));
+        output.writeln();
+
+        if (detailed) {
+          output.writeln(output.highlight('CLI Commands:') + `     ${cliProgress}% (${commandFiles}/${26})`);
+          output.writeln(output.highlight('Memory Entries:') + `   ${stats.totalEntries.toLocaleString()}`);
+          output.writeln(output.highlight('Source Files:') + `     ${totalSrc}`);
+          output.writeln();
+        }
+
+        output.writeln(output.dim(`Last updated: ${new Date().toLocaleString()}`));
+        output.printWarning('Full progress metrics require MCP. Start MCP for accurate reporting.');
+
+        return { success: true, data: offlineResult };
+      } catch (fallbackError) {
+        output.printError(`Offline fallback failed: ${String(fallbackError)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   },
 };
