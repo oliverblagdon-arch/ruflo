@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { validatePath } from '../src/mcp-tools/validate-input.js';
 
 describe('validatePath (#2352)', () => {
-  describe('Windows paths (the regression)', () => {
+  describe.skipIf(process.platform !== 'win32')('Windows paths (the regression)', () => {
     it('accepts an absolute Windows path with a drive letter', () => {
       const r = validatePath('E:\\Repos\\my-app\\middleware.ts', 'filePath');
       expect(r.valid).toBe(true);

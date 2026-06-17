@@ -220,7 +220,11 @@ vi.mock('node:module', () => ({
 // cleanly, this skip can come off.
 //
 // Skip in CI; run locally where WASM is built.
-const __SKIP_WASM_TESTS = process.env.CI === 'true';
+// Skip when the real WASM binary isn't available (offline / no pre-built binary).
+const __wasm_available = await import('@ruvector/ruvllm-wasm')
+  .then(m => typeof (m as Record<string, unknown>).HnswRouterWasm === 'function')
+  .catch(() => false);
+const __SKIP_WASM_TESTS = process.env.CI === 'true' || !__wasm_available;
 
 describe.skipIf(__SKIP_WASM_TESTS)('ruvllm-wasm integration', () => {
   beforeEach(() => {

@@ -135,7 +135,12 @@ import {
 // the real @ruvector/rvagent-wasm import still happens. Local runs where
 // the WASM binary is built work fine; CI without postinstall doesn't.
 // See ruvllm-wasm.test.ts for the same pattern.
-const __SKIP_WASM_TESTS = process.env.CI === 'true';
+// Skip when the WASM binary can't be initialised (offline / no pre-built binary).
+// We check by asking if WasmAgent is a real constructor in the actual module.
+const __wasm_available = await import('@ruvector/rvagent-wasm')
+  .then(m => typeof m.WasmAgent === 'function')
+  .catch(() => false);
+const __SKIP_WASM_TESTS = process.env.CI === 'true' || !__wasm_available;
 
 describe.skipIf(__SKIP_WASM_TESTS)('agent-wasm integration', () => {
   describe('detection and init', () => {
