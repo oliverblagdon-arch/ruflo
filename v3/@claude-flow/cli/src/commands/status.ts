@@ -114,6 +114,7 @@ async function getSystemStatus(): Promise<{
     size: string;
     backend: string;
     performance: { searchTime: number; cacheHitRate: number };
+    namespaces?: Array<{ namespace: string; count: number; withEmbeddings: number }>;
   };
   tasks: {
     total: number;
@@ -191,7 +192,8 @@ async function getSystemStatus(): Promise<{
         performance: {
           searchTime: memoryStatus.performance.avgSearchTime,
           cacheHitRate: memoryStatus.performance.cacheHitRate
-        }
+        },
+        namespaces: undefined
       },
       tasks: taskStatus,
       performance: {
@@ -221,7 +223,8 @@ async function getSystemStatus(): Promise<{
         entries: directStats?.totalEntries ?? 0,
         size: directStats ? formatBytes(directStats.dbSizeBytes) : '0 B',
         backend: directStats?.success ? 'sqlite (direct)' : 'none',
-        performance: { searchTime: 0, cacheHitRate: 0 }
+        performance: { searchTime: 0, cacheHitRate: 0 },
+        namespaces: directStats?.namespaces
       },
       tasks: { total: 0, pending: 0, running: 0, completed: 0, failed: 0 },
       performance: {
@@ -312,6 +315,21 @@ function displayStatus(status: Awaited<ReturnType<typeof getSystemStatus>>): voi
       { property: 'Cache Hit Rate', value: `${(status.memory.performance.cacheHitRate * 100).toFixed(1)}%` }
     ]
   });
+  if (status.memory.namespaces && status.memory.namespaces.length > 0) {
+    output.writeln(output.dim('  Namespaces:'));
+    output.printTable({
+      columns: [
+        { key: 'namespace', header: 'Namespace', width: 20 },
+        { key: 'count', header: 'Entries', width: 10, align: 'right' },
+        { key: 'vecs', header: 'Vectors', width: 10, align: 'right' }
+      ],
+      data: status.memory.namespaces.map(ns => ({
+        namespace: ns.namespace,
+        count: ns.count,
+        vecs: ns.withEmbeddings
+      }))
+    });
+  }
   output.writeln();
 
   // MCP section
