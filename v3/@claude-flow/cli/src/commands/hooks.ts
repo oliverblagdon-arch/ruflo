@@ -865,13 +865,27 @@ const routeCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Routing failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — using keyword-based routing (offline)...');
+      const t = task.toLowerCase();
+      const rules: Array<{ keywords: string[]; agent: string; reason: string }> = [
+        { keywords: ['security', 'auth', 'vuln', 'cve', 'threat', 'injection', 'xss', 'csrf'], agent: 'security-auditor', reason: 'Security-related keywords detected' },
+        { keywords: ['test', 'spec', 'coverage', 'tdd', 'mock', 'jest', 'vitest'], agent: 'tester', reason: 'Testing keywords detected' },
+        { keywords: ['architect', 'design', 'schema', 'structure', 'pattern', 'api', 'interface'], agent: 'system-architect', reason: 'Architecture/design keywords detected' },
+        { keywords: ['perf', 'optim', 'speed', 'latency', 'benchmark', 'slow', 'memory'], agent: 'performance-optimizer', reason: 'Performance keywords detected' },
+        { keywords: ['refactor', 'clean', 'debt', 'rewrite', 'migrate', 'legacy'], agent: 'coder', reason: 'Refactoring keywords detected' },
+        { keywords: ['bug', 'fix', 'error', 'crash', 'fail', 'broken', 'issue'], agent: 'coder', reason: 'Bug-fix keywords detected' },
+        { keywords: ['doc', 'readme', 'comment', 'jsdoc', 'api doc'], agent: 'api-docs', reason: 'Documentation keywords detected' },
+      ];
+      const matched = rules.find(r => r.keywords.some(k => t.includes(k)));
+      const primary = matched ?? { agent: 'coder', reason: 'Default agent for unmatched task' };
+      output.writeln();
+      output.printBox(
+        [`Agent: ${output.highlight(primary.agent)}`, `Confidence: 60.0%`, `Reason: ${primary.reason} (keyword match, offline)`].join('\n'),
+        'Primary Recommendation (offline)'
+      );
+      output.printWarning('Semantic routing, confidence scores, and neural estimates require MCP. Start MCP for full routing.');
+      return { success: true, data: { offline: true, primaryAgent: { type: primary.agent, confidence: 0.6, reason: primary.reason } } };
     }
   }
 };
