@@ -369,13 +369,55 @@ const listCommand: Command = {
       output.printInfo(`Total: ${result.total} workflows`);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to list workflows: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      output.printInfo('MCP not available — reading workflows from local filesystem...');
+      try {
+        const { readdirSync, readFileSync, existsSync } = await import('fs');
+        const { join } = await import('path');
+        const workflowsDir = join(process.cwd(), '.swarm', 'workflows');
+        if (!existsSync(workflowsDir)) {
+          output.printInfo('No local workflow data found');
+          return { success: true, data: { workflows: [], total: 0 } };
+        }
+        const files = readdirSync(workflowsDir).filter(f => f.endsWith('.json'));
+        const workflows = files.map(f => {
+          try {
+            return JSON.parse(readFileSync(join(workflowsDir, f), 'utf-8'));
+          } catch { return null; }
+        }).filter(Boolean);
+
+        const filtered = workflows.filter(w =>
+          !status || status === 'all' || w.status === status
+        ).slice(0, limit || 10);
+
+        if (ctx.flags.format === 'json') {
+          output.printJson({ workflows: filtered, total: workflows.length });
+          return { success: true, data: { workflows: filtered, total: workflows.length } };
+        }
+
+        output.writeln();
+        output.writeln(output.bold('Workflows') + output.dim(' (offline)'));
+        output.writeln();
+        if (filtered.length === 0) {
+          output.printInfo('No workflows found');
+        } else {
+          output.printTable({
+            columns: [
+              { key: 'id', header: 'ID', width: 15 },
+              { key: 'template', header: 'Template', width: 15 },
+              { key: 'status', header: 'Status', width: 12, format: formatStageStatus },
+              { key: 'progress', header: 'Progress', width: 10, align: 'right', format: (v) => `${v ?? 0}%` },
+              { key: 'startedAt', header: 'Started', width: 20, format: (v) => v ? new Date(String(v)).toLocaleString() : '-' },
+            ],
+            data: filtered,
+          });
+        }
+        output.printWarning('Live workflow state requires MCP. Start MCP for real-time status.');
+        return { success: true, data: { workflows: filtered, total: workflows.length } };
+      } catch (fallbackErr) {
+        output.printError(`Offline fallback failed: ${String(fallbackErr)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
@@ -455,13 +497,37 @@ const statusCommand: Command = {
       });
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to get status: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      output.printInfo('MCP not available — reading workflow status from local filesystem...');
+      try {
+        const { readFileSync, existsSync } = await import('fs');
+        const { join } = await import('path');
+        const wfFile = join(process.cwd(), '.swarm', 'workflows', `${workflowId}.json`);
+        if (!existsSync(wfFile)) {
+          output.printWarning(`No local data found for workflow ${workflowId}`);
+          return { success: true, data: null };
+        }
+        const wf = JSON.parse(readFileSync(wfFile, 'utf-8'));
+        if (ctx.flags.format === 'json') {
+          output.printJson(wf);
+          return { success: true, data: wf };
+        }
+        output.writeln();
+        output.printBox(
+          [
+            `ID: ${wf.id ?? workflowId}`,
+            `Template: ${wf.template ?? '-'}`,
+            `Status: ${formatStageStatus(wf.status ?? 'unknown')}`,
+            `Progress: ${wf.progress ?? 0}%`,
+          ].join('\n'),
+          'Workflow Status (offline)'
+        );
+        output.printWarning('Live stage progress requires MCP. Start MCP for real-time status.');
+        return { success: true, data: wf };
+      } catch (fallbackErr) {
+        output.printError(`Offline fallback failed: ${String(fallbackErr)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
