@@ -697,15 +697,158 @@ const deleteCommand: Command = {
   }
 };
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+async function renderStatsOutput(ctx: CommandContext, stats: {
+  backend: string;
+  version: string;
+  totalEntries: number;
+  entriesWithEmbeddings: number;
+  dbSizeBytes?: number;
+  totalSize?: string;
+  location: string;
+  oldestEntry: string | null;
+  newestEntry: string | null;
+  namespaces?: Array<{ namespace: string; count: number; withEmbeddings: number }>;
+}): Promise<void> {
+  output.writeln();
+  output.writeln(output.bold('Memory Statistics'));
+  output.writeln();
+
+  output.writeln(output.bold('Overview'));
+  output.printTable({
+    columns: [
+      { key: 'metric', header: 'Metric', width: 22 },
+      { key: 'value', header: 'Value', width: 30, align: 'right' }
+    ],
+    data: [
+      { metric: 'Backend', value: stats.backend },
+      { metric: 'Version', value: stats.version },
+      { metric: 'Total Entries', value: stats.totalEntries.toLocaleString() },
+      { metric: 'Vector Entries', value: stats.entriesWithEmbeddings.toLocaleString() },
+      { metric: 'Total Storage', value: stats.totalSize || (stats.dbSizeBytes != null ? formatBytes(stats.dbSizeBytes) : 'N/A') },
+      { metric: 'Location', value: stats.location }
+    ]
+  });
+
+  if (stats.namespaces && stats.namespaces.length > 0) {
+    output.writeln();
+    output.writeln(output.bold('Namespaces'));
+    output.printTable({
+      columns: [
+        { key: 'namespace', header: 'Namespace', width: 20 },
+        { key: 'count', header: 'Entries', width: 10, align: 'right' },
+        { key: 'withEmbeddings', header: 'Vectors', width: 10, align: 'right' },
+        { key: 'pct', header: 'Vector %', width: 10, align: 'right' }
+      ],
+      data: stats.namespaces.map(ns => ({
+        namespace: ns.namespace,
+        count: ns.count.toLocaleString(),
+        withEmbeddings: ns.withEmbeddings.toLocaleString(),
+        pct: ns.count > 0 ? `${Math.round((ns.withEmbeddings / ns.count) * 100)}%` : '0%'
+      }))
+    });
+  }
+
+  output.writeln();
+  output.writeln(output.bold('Timeline'));
+  output.printTable({
+    columns: [
+      { key: 'metric', header: 'Metric', width: 22 },
+      { key: 'value', header: 'Value', width: 30, align: 'right' }
+    ],
+    data: [
+      { metric: 'Oldest Entry', value: stats.oldestEntry || 'N/A' },
+      { metric: 'Newest Entry', value: stats.newestEntry || 'N/A' }
+    ]
+  });
+
+  // #1622 — Surface the active embedding provider
+  try {
+    const { loadEmbeddingModel, getHNSWStatus } = await import('../memory/memory-initializer.js');
+    const embedding = await loadEmbeddingModel({ verbose: false });
+    const hnsw = getHNSWStatus();
+    const semanticProviders = new Set([
+      'Xenova/all-MiniLM-L6-v2',
+      'Xenova/all-mpnet-base-v2',
+      'Xenova/bge-small-en-v1.5',
+      'agentic-flow',
+      'agentic-flow/reasoningbank',
+      'ruvector/onnx',
+      'cached',
+    ]);
+    const isSemantic = embedding.success && semanticProviders.has(embedding.modelName);
+
+    output.writeln();
+    output.writeln(output.bold('Embedding'));
+    output.printTable({
+      columns: [
+        { key: 'metric', header: 'Metric', width: 22 },
+        { key: 'value', header: 'Value', width: 30, align: 'right' }
+      ],
+      data: [
+        {
+          metric: 'Provider',
+          value: embedding.success
+            ? embedding.modelName
+            : output.warning(`unavailable: ${embedding.error || 'unknown'}`),
+        },
+        { metric: 'Dimensions', value: String(embedding.dimensions) },
+        {
+          metric: 'Semantic Search',
+          value: isSemantic
+            ? output.success('yes')
+            : output.warning('no — using hash fallback'),
+        },
+        {
+          metric: 'HNSW Index',
+          // ruflo#1989/#1987: use the persistent count as source of truth
+          value: (() => {
+            const persisted = stats.entriesWithEmbeddings;
+            const live = hnsw.entryCount || 0;
+            const total = Math.max(persisted, live);
+            if (!hnsw.available) return output.dim('not active');
+            if (total === 0) return output.warning('available but not initialized');
+            return output.success(`active (${total.toLocaleString()} entries)`);
+          })(),
+        },
+      ]
+    });
+  } catch (e) {
+    output.writeln();
+    output.writeln(output.bold('Embedding'));
+    output.printInfo(`Provider info unavailable: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  output.writeln();
+  output.printInfo('V3 Performance: ~1.9x–4.7x faster search with HNSW indexing (measured)');
+}
+
 // Stats command
 const statsCommand: Command = {
   name: 'stats',
   description: 'Show memory statistics',
-  options: [DB_PATH_OPTION],
+  options: [
+    DB_PATH_OPTION,
+    {
+      name: 'format',
+      short: 'f',
+      description: 'Output format (json for machine-readable output, default: table)',
+      type: 'string'
+    }
+  ],
+  examples: [
+    { command: 'claude-flow memory stats', description: 'Show memory statistics' },
+    { command: 'claude-flow memory stats --format json', description: 'JSON output' }
+  ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
-    // Call MCP memory/stats tool for real statistics
+    // Try MCP first; fall back to direct sql.js query so stats work without a running MCP server
     try {
-      const statsResult = await callMCPTool('memory_stats', {}) as {
+      const mcpResult = await callMCPTool('memory_stats', {}) as {
         totalEntries: number;
         entriesWithEmbeddings?: number;
         totalSize: string;
@@ -714,22 +857,19 @@ const statsCommand: Command = {
         location: string;
         oldestEntry: string | null;
         newestEntry: string | null;
+        namespaces?: Array<{ namespace: string; count: number; withEmbeddings: number }>;
       };
 
       const stats = {
-        backend: statsResult.backend,
-        entries: {
-          total: statsResult.totalEntries,
-          vectors: 0, // Would need vector backend support
-          text: statsResult.totalEntries
-        },
-        storage: {
-          total: statsResult.totalSize,
-          location: statsResult.location
-        },
-        version: statsResult.version,
-        oldestEntry: statsResult.oldestEntry,
-        newestEntry: statsResult.newestEntry
+        backend: mcpResult.backend,
+        version: mcpResult.version,
+        totalEntries: mcpResult.totalEntries,
+        entriesWithEmbeddings: mcpResult.entriesWithEmbeddings ?? 0,
+        totalSize: mcpResult.totalSize,
+        location: mcpResult.location,
+        oldestEntry: mcpResult.oldestEntry,
+        newestEntry: mcpResult.newestEntry,
+        namespaces: mcpResult.namespaces,
       };
 
       if (ctx.flags.format === 'json') {
@@ -737,120 +877,43 @@ const statsCommand: Command = {
         return { success: true, data: stats };
       }
 
-      output.writeln();
-      output.writeln(output.bold('Memory Statistics'));
-      output.writeln();
-
-      output.writeln(output.bold('Overview'));
-      output.printTable({
-        columns: [
-          { key: 'metric', header: 'Metric', width: 20 },
-          { key: 'value', header: 'Value', width: 30, align: 'right' }
-        ],
-        data: [
-          { metric: 'Backend', value: stats.backend },
-          { metric: 'Version', value: stats.version },
-          { metric: 'Total Entries', value: stats.entries.total.toLocaleString() },
-          { metric: 'Total Storage', value: stats.storage.total },
-          { metric: 'Location', value: stats.storage.location }
-        ]
-      });
-
-      output.writeln();
-      output.writeln(output.bold('Timeline'));
-      output.printTable({
-        columns: [
-          { key: 'metric', header: 'Metric', width: 20 },
-          { key: 'value', header: 'Value', width: 30, align: 'right' }
-        ],
-        data: [
-          { metric: 'Oldest Entry', value: stats.oldestEntry || 'N/A' },
-          { metric: 'Newest Entry', value: stats.newestEntry || 'N/A' }
-        ]
-      });
-
-      // #1622 — Surface the active embedding provider in `memory stats` so
-      // users can tell which backend resolved at runtime (the 6-level
-      // fallback chain in loadEmbeddingModel ranges from full ONNX to a
-      // 128-dim hash that has no semantic understanding). Calling
-      // loadEmbeddingModel() is cheap when the model is already cached;
-      // a fresh call still resolves quickly because we only need the
-      // metadata, not a real embedding.
-      try {
-        const { loadEmbeddingModel, getHNSWStatus } = await import('../memory/memory-initializer.js');
-        const embedding = await loadEmbeddingModel({ verbose: false });
-        const hnsw = getHNSWStatus();
-        // Map model name → semantic capability so users can spot the
-        // hash-fallback case without reading docs.
-        const semanticProviders = new Set([
-          'Xenova/all-MiniLM-L6-v2',
-          'Xenova/all-mpnet-base-v2',
-          'Xenova/bge-small-en-v1.5',
-          'agentic-flow',
-          'agentic-flow/reasoningbank',
-          'ruvector/onnx',
-          'cached',
-        ]);
-        const isSemantic = embedding.success && semanticProviders.has(embedding.modelName);
-
-        output.writeln();
-        output.writeln(output.bold('Embedding'));
-        output.printTable({
-          columns: [
-            { key: 'metric', header: 'Metric', width: 20 },
-            { key: 'value', header: 'Value', width: 30, align: 'right' }
-          ],
-          data: [
-            {
-              metric: 'Provider',
-              value: embedding.success
-                ? embedding.modelName
-                : output.warning(`unavailable: ${embedding.error || 'unknown'}`),
-            },
-            { metric: 'Dimensions', value: String(embedding.dimensions) },
-            {
-              metric: 'Semantic Search',
-              value: isSemantic
-                ? output.success('yes')
-                : output.warning('no — using hash fallback'),
-            },
-            {
-              metric: 'HNSW Index',
-              // ruflo#1989 / #1987: `hnsw.entryCount` is in-process JS state
-              // (the live HNSW index of the current Node process). A fresh
-              // `memory stats` invocation has never indexed anything, so it
-              // reports 0 even when the persistent DB has thousands of
-              // entries with embeddings. Use the persistent count from the
-              // MCP tool (`entriesWithEmbeddings`, which is the actual
-              // count of rows that have a vector) as the source of truth.
-              value: (() => {
-                const persisted = typeof statsResult.entriesWithEmbeddings === 'number'
-                  ? statsResult.entriesWithEmbeddings
-                  : null;
-                const live = hnsw.entryCount || 0;
-                const total = persisted !== null ? Math.max(persisted, live) : live;
-                if (!hnsw.available) return output.dim('not active');
-                if (total === 0) return output.warning('available but not initialized');
-                return output.success(`active (${total.toLocaleString()} entries)`);
-              })(),
-            },
-          ]
-        });
-      } catch (e) {
-        // Don't fail the whole stats command if introspection breaks —
-        // the rest of the dashboard is still useful.
-        output.writeln();
-        output.writeln(output.bold('Embedding'));
-        output.printInfo(`Provider info unavailable: ${e instanceof Error ? e.message : String(e)}`);
-      }
-
-      output.writeln();
-      output.printInfo('V3 Performance: 150x-12,500x faster search with HNSW indexing');
-
+      await renderStatsOutput(ctx, stats);
       return { success: true, data: stats };
-    } catch (error) {
-      output.printError(`Failed to get stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      return { success: false, exitCode: 1 };
+    } catch (_mcpError) {
+      // MCP not running — fall back to direct sql.js query
+      try {
+        const { getDirectStats } = await import('../memory/memory-initializer.js');
+        const dbPath = ctx.flags.path as string | undefined;
+        const direct = await getDirectStats(dbPath);
+
+        if (!direct.success) {
+          output.printError(direct.error || 'Failed to read database');
+          return { success: false, exitCode: 1 };
+        }
+
+        const stats = {
+          backend: 'sqlite (direct)',
+          version: '3',
+          totalEntries: direct.totalEntries,
+          entriesWithEmbeddings: direct.entriesWithEmbeddings,
+          dbSizeBytes: direct.dbSizeBytes,
+          location: direct.dbPath,
+          oldestEntry: direct.oldestEntry,
+          newestEntry: direct.newestEntry,
+          namespaces: direct.namespaces,
+        };
+
+        if (ctx.flags.format === 'json') {
+          output.printJson(stats);
+          return { success: true, data: stats };
+        }
+
+        await renderStatsOutput(ctx, stats);
+        return { success: true, data: stats };
+      } catch (error) {
+        output.printError(`Failed to get stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return { success: false, exitCode: 1 };
+      }
     }
   }
 };

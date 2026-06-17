@@ -3061,6 +3061,99 @@ export async function deleteEntry(options: {
   }
 }
 
+export interface DirectStatsResult {
+  success: boolean;
+  dbPath: string;
+  dbSizeBytes: number;
+  totalEntries: number;
+  entriesWithEmbeddings: number;
+  namespaces: Array<{ namespace: string; count: number; withEmbeddings: number }>;
+  oldestEntry: string | null;
+  newestEntry: string | null;
+  error?: string;
+}
+
+export async function getDirectStats(dbPath?: string): Promise<DirectStatsResult> {
+  const resolvedPath = dbPath || resolveDbPath();
+
+  if (!fs.existsSync(resolvedPath)) {
+    return {
+      success: false,
+      dbPath: resolvedPath,
+      dbSizeBytes: 0,
+      totalEntries: 0,
+      entriesWithEmbeddings: 0,
+      namespaces: [],
+      oldestEntry: null,
+      newestEntry: null,
+      error: 'Database not found. Run: claude-flow memory init'
+    };
+  }
+
+  try {
+    const initSqlJs = (await import('sql.js')).default;
+    const SQL = await initSqlJs();
+    const fileBuffer = fs.readFileSync(resolvedPath);
+    const db = new SQL.Database(fileBuffer);
+
+    const dbSizeBytes = fs.statSync(resolvedPath).size;
+
+    const totalResult = db.exec(`SELECT COUNT(*) FROM memory_entries WHERE status = 'active'`);
+    const totalEntries = (totalResult[0]?.values?.[0]?.[0] as number) || 0;
+
+    const vectorResult = db.exec(`SELECT COUNT(*) FROM memory_entries WHERE status = 'active' AND embedding IS NOT NULL`);
+    const entriesWithEmbeddings = (vectorResult[0]?.values?.[0]?.[0] as number) || 0;
+
+    const nsResult = db.exec(`
+      SELECT namespace,
+             COUNT(*) as total,
+             SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) as with_embeddings
+      FROM memory_entries
+      WHERE status = 'active'
+      GROUP BY namespace
+      ORDER BY total DESC
+    `);
+    const namespaces = (nsResult[0]?.values || []).map((row) => ({
+      namespace: row[0] as string,
+      count: row[1] as number,
+      withEmbeddings: row[2] as number,
+    }));
+
+    const oldestResult = db.exec(`SELECT MIN(created_at) FROM memory_entries WHERE status = 'active'`);
+    const oldestMs = oldestResult[0]?.values?.[0]?.[0] as number | null;
+    const oldestEntry = oldestMs ? new Date(oldestMs).toISOString() : null;
+
+    const newestResult = db.exec(`SELECT MAX(created_at) FROM memory_entries WHERE status = 'active'`);
+    const newestMs = newestResult[0]?.values?.[0]?.[0] as number | null;
+    const newestEntry = newestMs ? new Date(newestMs).toISOString() : null;
+
+    db.close();
+
+    return {
+      success: true,
+      dbPath: resolvedPath,
+      dbSizeBytes,
+      totalEntries,
+      entriesWithEmbeddings,
+      namespaces,
+      oldestEntry,
+      newestEntry,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      dbPath: resolvedPath,
+      dbSizeBytes: 0,
+      totalEntries: 0,
+      entriesWithEmbeddings: 0,
+      namespaces: [],
+      oldestEntry: null,
+      newestEntry: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export default {
   initializeMemoryDatabase,
   checkMemoryInitialization,
@@ -3076,6 +3169,7 @@ export default {
   getEntry,
   deleteEntry,
   rebuildSearchIndex,
+  getDirectStats,
   MEMORY_SCHEMA_V3,
   getInitialMetadata
 };
