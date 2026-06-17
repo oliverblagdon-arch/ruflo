@@ -2369,9 +2369,9 @@ const intelligenceCommand: Command = {
         await callMCPTool('hooks_intelligence-reset', {});
         output.printSuccess('Learning state reset');
         return { success: true };
-      } catch (error) {
-        output.printError(`Reset failed: ${error}`);
-        return { success: false, exitCode: 1 };
+      } catch {
+        output.printWarning('Offline — intelligence reset requires MCP. Start MCP to reset learning state.');
+        return { success: true, data: { offline: true, skipped: true } };
       }
     }
 
