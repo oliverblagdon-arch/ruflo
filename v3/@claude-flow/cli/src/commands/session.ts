@@ -362,20 +362,28 @@ const restoreCommand: Command = {
     if (!sessionId && ctx.interactive) {
       // Show list to select from
       try {
-        const sessions = await callMCPTool<{
-          sessions: Array<{ id: string; name?: string; status: string; updatedAt: string }>;
-        }>('session_list', { status: 'saved', limit: 20 });
+        let sessionChoices: Array<{ id: string; label: string; updatedAt: string }> = [];
+        try {
+          const sessions = await callMCPTool<{
+            sessions: Array<{ id: string; name?: string; status: string; updatedAt: string }>;
+          }>('session_list', { status: 'saved', limit: 20 });
+          sessionChoices = sessions.sessions.map(s => ({ id: s.id, label: s.name || s.id, updatedAt: s.updatedAt }));
+        } catch {
+          const { getDirectSessions } = await import('../memory/memory-initializer.js');
+          const direct = await getDirectSessions({ status: 'active,saved', limit: 20 });
+          sessionChoices = direct.sessions.map(s => ({ id: s.id, label: s.id.slice(0, 24), updatedAt: s.updatedAt }));
+        }
 
-        if (sessions.sessions.length === 0) {
+        if (sessionChoices.length === 0) {
           output.printWarning('No saved sessions found');
           return { success: false, exitCode: 1 };
         }
 
         sessionId = await select({
           message: 'Select session to restore:',
-          options: sessions.sessions.map(s => ({
+          options: sessionChoices.map(s => ({
             value: s.id,
-            label: s.name || s.id,
+            label: s.label,
             hint: formatDate(s.updatedAt)
           }))
         });
@@ -473,12 +481,53 @@ const restoreCommand: Command = {
       return { success: true, data: result };
     } catch (error) {
       spinner.fail('Failed to restore session');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+
+      // MCP unavailable — offer a direct read of session state from the local DB
+      output.printInfo('MCP not available — reading session from local database...');
+      try {
+        const { getDirectSessions } = await import('../memory/memory-initializer.js');
+        const direct = await getDirectSessions({ limit: 200 });
+        const session = direct.sessions.find(s => s.id === sessionId || s.id.startsWith(sessionId));
+        if (!session) {
+          output.printError(`Session "${sessionId}" not found in local database`);
+          return { success: false, exitCode: 1 };
+        }
+
+        output.printSuccess(`Session found in local database (offline mode)`);
+        output.printTable({
+          columns: [
+            { key: 'property', header: 'Property', width: 20 },
+            { key: 'value', header: 'Value', width: 40 }
+          ],
+          data: [
+            { property: 'Session ID', value: session.id },
+            { property: 'Status', value: session.status },
+            { property: 'Project Path', value: session.projectPath ?? '-' },
+            { property: 'Branch', value: session.branch ?? '-' },
+            { property: 'Tasks Completed', value: String(session.tasksCompleted) },
+            { property: 'Patterns Learned', value: String(session.patternsLearned) },
+            { property: 'Created', value: formatDate(session.createdAt) },
+            { property: 'Updated', value: formatDate(session.updatedAt) }
+          ]
+        });
+
+        output.writeln();
+        output.printWarning('Full session restore (agents, tasks) requires MCP. Start MCP and run again.');
+        output.printInfo('Memory entries are always available via: claude-flow memory list');
+
+        if (ctx.flags.format === 'json') {
+          output.printJson(session);
+        }
+
+        return { success: true, data: session };
+      } catch (directError) {
+        if (error instanceof MCPClientError) {
+          output.printError(`Error: ${error.message}`);
+        } else {
+          output.printError(`Unexpected error: ${String(error)}`);
+        }
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
