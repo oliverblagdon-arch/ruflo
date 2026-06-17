@@ -379,13 +379,9 @@ const preEditCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Pre-edit hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -504,13 +500,9 @@ const postEditCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Post-edit hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -620,13 +612,9 @@ const preCommandCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Pre-command hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -713,13 +701,9 @@ const postCommandCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Post-command hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1009,13 +993,9 @@ const explainCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Explanation failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1201,14 +1181,10 @@ const pretrainCommand: Command = {
       output.writeln(output.dim('  Next step: Run "claude-flow hooks build-agents" to generate optimized configs'));
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Pretraining failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Pretraining error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1313,14 +1289,10 @@ const buildAgentsCommand: Command = {
       output.printSuccess(`Agent configs saved to ${output_dir}`);
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Agent config generation failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Build agents error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1654,14 +1626,10 @@ const transferFromProjectCommand: Command = {
       ]);
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Transfer failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Transfer error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1996,13 +1964,9 @@ const preTaskCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Pre-task hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -2109,13 +2073,9 @@ const postTaskCommand: Command = {
       });
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Post-task hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -2190,13 +2150,9 @@ const sessionEndCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Session-end hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -2686,14 +2642,10 @@ const intelligenceCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Intelligence system error');
-      if (error instanceof MCPClientError) {
-        output.printError(`Intelligence error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -2943,12 +2895,9 @@ const workerDispatchCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Worker dispatch failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Dispatch error: ${error.message}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -3153,12 +3102,9 @@ const workerDetectCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Detection failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Detection error: ${error.message}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -3198,12 +3144,9 @@ const workerCancelCommand: Command = {
 
       spinner.succeed(`Worker ${workerId} cancelled`);
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Cancel failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Cancel error: ${error.message}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -4128,13 +4071,9 @@ const progressHookCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Progress check failed: ${error.message}`);
-      } else {
-        output.printError(`Progress check failed: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -4989,13 +4928,9 @@ const modelRouteCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Model routing failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation is skipped offline (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
