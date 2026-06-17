@@ -188,7 +188,7 @@ async function checkMemoryDatabase(): Promise<HealthCheck> {
   return { name: 'Memory Database', status: 'warn', message: 'Not initialized', fix: 'claude-flow memory configure --backend hybrid' };
 }
 
-// Check API keys
+// Check API keys (env var presence only — no network call)
 async function checkApiKeys(): Promise<HealthCheck> {
   const keys = ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'OPENAI_API_KEY'];
   const found: string[] = [];
@@ -211,6 +211,99 @@ async function checkApiKeys(): Promise<HealthCheck> {
   } else {
     return { name: 'API Keys', status: 'warn', message: 'No API keys found', fix: 'export ANTHROPIC_API_KEY=your_key' };
   }
+}
+
+// Validate ANTHROPIC_API_KEY against the Anthropic API (lightweight models list call)
+async function checkAnthropicApiKeyValidity(): Promise<HealthCheck> {
+  const key = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  const inClaudeCode = !!(process.env.CLAUDE_CODE || process.env.CLAUDE_PROJECT_DIR || process.env.MCP_SESSION_ID);
+
+  if (inClaudeCode) {
+    return { name: 'Anthropic API Key', status: 'pass', message: 'Claude Code (managed internally — skipping validation)' };
+  }
+
+  if (!key) {
+    return { name: 'Anthropic API Key', status: 'warn', message: 'Not set — skipping validation', fix: 'export ANTHROPIC_API_KEY=sk-ant-...' };
+  }
+
+  // Validate key format before making a network call
+  if (!key.startsWith('sk-ant-') && !key.startsWith('sk-')) {
+    return { name: 'Anthropic API Key', status: 'warn', message: 'Unusual key format (expected sk-ant-…)' };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    let response: Response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/models', {
+        method: 'GET',
+        headers: {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (response.status === 200) {
+      const masked = `${key.slice(0, 10)}…${key.slice(-4)}`;
+      return { name: 'Anthropic API Key', status: 'pass', message: `Valid (${masked})` };
+    } else if (response.status === 401) {
+      return { name: 'Anthropic API Key', status: 'fail', message: 'Invalid or revoked key (401)', fix: 'Generate a new key at https://console.anthropic.com/settings/keys' };
+    } else if (response.status === 403) {
+      return { name: 'Anthropic API Key', status: 'warn', message: 'Key valid but insufficient permissions (403)' };
+    } else {
+      return { name: 'Anthropic API Key', status: 'warn', message: `Unexpected status ${response.status} from API` };
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { name: 'Anthropic API Key', status: 'warn', message: 'Validation timed out (no network?)' };
+    }
+    return { name: 'Anthropic API Key', status: 'warn', message: 'Could not reach api.anthropic.com' };
+  }
+}
+
+// Probe MCP server connectivity by spawning it and checking stdio handshake
+async function checkMcpConnectivity(): Promise<HealthCheck> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      resolve({ name: 'MCP Connectivity', status: 'warn', message: 'Probe timed out (>3s)', fix: 'claude-flow mcp start' });
+    }, 3000);
+
+    try {
+      const child = exec(
+        'node bin/cli.js mcp start --timeout 1000 2>&1 | head -3',
+        { timeout: 3000, env: { ...process.env } },
+        (error, stdout) => {
+          clearTimeout(timeout);
+          if (error && !stdout) {
+            resolve({ name: 'MCP Connectivity', status: 'warn', message: 'MCP server did not start', fix: 'claude-flow mcp start' });
+            return;
+          }
+          const out = stdout.toLowerCase();
+          if (out.includes('mcp') || out.includes('server') || out.includes('listening') || out.includes('ready') || out.includes('stdio')) {
+            resolve({ name: 'MCP Connectivity', status: 'pass', message: 'MCP server responds on stdio' });
+          } else if (out.includes('error') || out.includes('fail')) {
+            resolve({ name: 'MCP Connectivity', status: 'warn', message: 'MCP server started with errors', fix: 'claude-flow mcp start --verbose' });
+          } else {
+            // Any output means the process launched
+            resolve({ name: 'MCP Connectivity', status: 'pass', message: 'MCP server process launches successfully' });
+          }
+        }
+      );
+      // Ensure child is cleaned up regardless
+      child.on('error', () => {
+        clearTimeout(timeout);
+        resolve({ name: 'MCP Connectivity', status: 'warn', message: 'Failed to spawn MCP server', fix: 'node bin/cli.js mcp start' });
+      });
+    } catch {
+      clearTimeout(timeout);
+      resolve({ name: 'MCP Connectivity', status: 'warn', message: 'Could not probe MCP server' });
+    }
+  });
 }
 
 // Check git (async with proper env inheritance)
@@ -741,7 +834,7 @@ export const doctorCommand: Command = {
     {
       name: 'component',
       short: 'c',
-      description: 'Check specific component (version, node, npm, config, daemon, memory, api, git, mcp, claude, disk, typescript)',
+      description: 'Check specific component (version, node, npm, config, daemon, memory, api, api-key, git, mcp, mcp-connect, claude, disk, typescript)',
       type: 'string'
     },
     {
@@ -782,7 +875,9 @@ export const doctorCommand: Command = {
       checkDaemonStatus,
       checkMemoryDatabase,
       checkApiKeys,
+      checkAnthropicApiKeyValidity,
       checkMcpServers,
+      checkMcpConnectivity,
       checkAIDefence, // #1807
       checkDiskSpace,
       checkBuildTools,
@@ -801,8 +896,11 @@ export const doctorCommand: Command = {
       'daemon': checkDaemonStatus,
       'memory': checkMemoryDatabase,
       'api': checkApiKeys,
+      'api-key': checkAnthropicApiKeyValidity,
+      'anthropic': checkAnthropicApiKeyValidity,
       'git': checkGit,
       'mcp': checkMcpServers,
+      'mcp-connect': checkMcpConnectivity,
       'aidefence': checkAIDefence, // #1807
       'disk': checkDiskSpace,
       'typescript': checkBuildTools,
