@@ -2284,13 +2284,36 @@ const sessionRestoreCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Session-restore hook failed: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      output.printInfo('MCP not available — reading session data from local DB (offline)...');
+      try {
+        const { getDirectSessions } = await import('../memory/memory-initializer.js');
+        const filter = sessionId === 'latest' ? undefined : undefined;
+        const result = await getDirectSessions({ limit: 50, status: filter });
+        const sessions = result?.sessions ?? [];
+        const target = sessionId === 'latest'
+          ? sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0]
+          : sessions.find(s => s.id === sessionId);
+        if (!target) {
+          output.printInfo(sessions.length === 0 ? 'No sessions found in local DB.' : `Session "${sessionId}" not found. Available: ${sessions.slice(0, 5).map(s => s.id).join(', ')}`);
+          return { success: true, data: { offline: true } };
+        }
+        output.writeln();
+        output.printBox([
+          `Session ID     : ${target.id}`,
+          `Status         : ${target.status}`,
+          `Branch         : ${target.branch ?? 'N/A'}`,
+          `Tasks Completed: ${target.tasksCompleted}`,
+          `Patterns Learned: ${target.patternsLearned}`,
+          `Created        : ${target.createdAt}`,
+          `Updated        : ${target.updatedAt}`,
+        ].join('\n'), 'Session Data (offline — not restored)');
+        output.printWarning('Full session restore (agents, tasks, memory) requires MCP. Start MCP to restore.');
+        return { success: true, data: { offline: true, session: target } };
+      } catch (fallbackErr) {
+        output.printError(`Session restore unavailable: ${String(fallbackErr)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
@@ -3035,12 +3058,13 @@ const workerStatusCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Status check failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Status error: ${error.message}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — worker runtime state unavailable (offline)...');
+      output.writeln(output.dim('No live worker instances can be queried without MCP.'));
+      output.writeln(output.dim('Known worker types: ultralearn, optimize, consolidate, predict, audit, map, preload, deepdive, document, refactor, benchmark, testgaps'));
+      output.printWarning('Active worker status requires MCP. Start MCP to see running instances.');
+      return { success: true, data: { offline: true, workers: [], summary: { total: 0, running: 0, completed: 0, failed: 0 } } };
     }
   }
 };
