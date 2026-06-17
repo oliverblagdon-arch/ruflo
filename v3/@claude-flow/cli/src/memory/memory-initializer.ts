@@ -3154,6 +3154,80 @@ export async function getDirectStats(dbPath?: string): Promise<DirectStatsResult
   }
 }
 
+export interface DirectSessionsResult {
+  success: boolean;
+  sessions: Array<{
+    id: string;
+    status: string;
+    projectPath: string | null;
+    branch: string | null;
+    tasksCompleted: number;
+    patternsLearned: number;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  total: number;
+  error?: string;
+}
+
+export async function getDirectSessions(options: {
+  dbPath?: string;
+  status?: string;
+  limit?: number;
+} = {}): Promise<DirectSessionsResult> {
+  const resolvedPath = resolveDbPath(options.dbPath);
+  const limit = options.limit ?? 50;
+  try {
+    const initSqlJs = (await import('sql.js')).default;
+    const SQL = await initSqlJs();
+    const fs = await import('fs');
+    if (!fs.existsSync(resolvedPath)) {
+      return { success: true, sessions: [], total: 0 };
+    }
+    const fileBuffer = fs.readFileSync(resolvedPath);
+    const db = new SQL.Database(fileBuffer);
+
+    let whereClause = '';
+    if (options.status && options.status !== 'all') {
+      const statuses = options.status.split(',').map(s => `'${s.trim()}'`).join(',');
+      whereClause = `WHERE status IN (${statuses})`;
+    }
+
+    const countResult = db.exec(`SELECT COUNT(*) FROM sessions ${whereClause}`);
+    const total = countResult.length > 0 ? (countResult[0].values[0][0] as number) : 0;
+
+    const rows = db.exec(
+      `SELECT id, status, project_path, branch, tasks_completed, patterns_learned, created_at, updated_at
+       FROM sessions ${whereClause}
+       ORDER BY updated_at DESC
+       LIMIT ${limit}`
+    );
+
+    const sessions = rows.length > 0
+      ? rows[0].values.map(r => ({
+          id: String(r[0] ?? ''),
+          status: String(r[1] ?? 'active'),
+          projectPath: r[2] != null ? String(r[2]) : null,
+          branch: r[3] != null ? String(r[3]) : null,
+          tasksCompleted: Number(r[4] ?? 0),
+          patternsLearned: Number(r[5] ?? 0),
+          createdAt: new Date(Number(r[6] ?? 0)).toISOString(),
+          updatedAt: new Date(Number(r[7] ?? 0)).toISOString(),
+        }))
+      : [];
+
+    db.close();
+    return { success: true, sessions, total };
+  } catch (error) {
+    return {
+      success: false,
+      sessions: [],
+      total: 0,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export default {
   initializeMemoryDatabase,
   checkMemoryInitialization,
@@ -3170,6 +3244,7 @@ export default {
   deleteEntry,
   rebuildSearchIndex,
   getDirectStats,
+  getDirectSessions,
   MEMORY_SCHEMA_V3,
   getInitialMetadata
 };

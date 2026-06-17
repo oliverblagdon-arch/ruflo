@@ -139,13 +139,57 @@ const listCommand: Command = {
       output.printInfo(`Showing ${result.sessions.length} of ${result.total} sessions`);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to list sessions: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      // MCP unavailable — read sessions directly from sqlite
+      output.printInfo('MCP not available — reading sessions from local database...');
+      try {
+        const { getDirectSessions } = await import('../memory/memory-initializer.js');
+        const statusFilter = activeOnly ? 'active' : includeArchived ? 'all' : 'active,saved';
+        const direct = await getDirectSessions({ status: statusFilter, limit });
+        if (!direct.success) {
+          output.printError(direct.error ?? 'Failed to read session database');
+          return { success: false, exitCode: 1 };
+        }
+
+        if (ctx.flags.format === 'json') {
+          output.printJson({ sessions: direct.sessions, total: direct.total });
+          return { success: true, data: direct };
+        }
+
+        output.writeln();
+        output.writeln(output.bold('Sessions'));
+        output.writeln();
+
+        if (direct.sessions.length === 0) {
+          output.printInfo('No sessions found');
+          output.printInfo('Run "claude-flow session save" to create a session');
+          return { success: true, data: direct };
+        }
+
+        output.printTable({
+          columns: [
+            { key: 'id', header: 'ID', width: 20 },
+            { key: 'status', header: 'Status', width: 10 },
+            { key: 'tasks', header: 'Tasks', width: 8, align: 'right' },
+            { key: 'patterns', header: 'Patterns', width: 10, align: 'right' },
+            { key: 'updated', header: 'Last Updated', width: 18 }
+          ],
+          data: direct.sessions.map(s => ({
+            id: s.id.slice(0, 18),
+            status: formatStatus(s.status as 'active' | 'saved' | 'archived'),
+            tasks: s.tasksCompleted,
+            patterns: s.patternsLearned,
+            updated: formatDate(s.updatedAt)
+          }))
+        });
+
+        output.writeln();
+        output.printInfo(`Showing ${direct.sessions.length} of ${direct.total} sessions (direct)`);
+        return { success: true, data: direct };
+      } catch (directError) {
+        output.printError(`Failed to list sessions: ${directError instanceof Error ? directError.message : String(directError)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
