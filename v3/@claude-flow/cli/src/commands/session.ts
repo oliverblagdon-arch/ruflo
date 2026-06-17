@@ -637,8 +637,15 @@ const exportCommand: Command = {
         const current = await callMCPTool<{ sessionId: string }>('session_current', {});
         sessionId = current.sessionId;
       } catch {
-        output.printError('No active session. Provide a session ID to export.');
-        return { success: false, exitCode: 1 };
+        // Fall back to most recently updated session in local DB
+        const { getDirectSessions } = await import('../memory/memory-initializer.js');
+        const direct = await getDirectSessions({ limit: 1 });
+        if (direct.sessions.length === 0) {
+          output.printError('No active session. Provide a session ID to export.');
+          return { success: false, exitCode: 1 };
+        }
+        sessionId = direct.sessions[0].id;
+        output.printInfo(`Using most recent session: ${sessionId}`);
       }
     }
 
@@ -711,12 +718,74 @@ const exportCommand: Command = {
       };
     } catch (error) {
       spinner.fail('Failed to export session');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+
+      // MCP unavailable — export session metadata directly from local DB
+      output.printInfo('MCP not available — exporting session from local database...');
+      try {
+        const { getDirectSessions } = await import('../memory/memory-initializer.js');
+        const direct = await getDirectSessions({ limit: 200 });
+        const session = direct.sessions.find(s => s.id === sessionId || s.id.startsWith(sessionId ?? ''));
+        if (!session) {
+          output.printError(`Session "${sessionId}" not found in local database`);
+          return { success: false, exitCode: 1 };
+        }
+
+        const exportData = {
+          sessionId: session.id,
+          exportedAt: new Date().toISOString(),
+          exportedBy: 'claude-flow (offline)',
+          session: {
+            id: session.id,
+            status: session.status,
+            projectPath: session.projectPath,
+            branch: session.branch,
+            tasksCompleted: session.tasksCompleted,
+            patternsLearned: session.patternsLearned,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+          }
+        };
+
+        const content = exportFormat === 'yaml'
+          ? toSimpleYaml(exportData)
+          : JSON.stringify(exportData, null, 2);
+
+        const absolutePath = path.isAbsolute(outputPath)
+          ? outputPath
+          : path.join(ctx.cwd, outputPath);
+
+        fs.writeFileSync(absolutePath, content, 'utf-8');
+
+        spinner.succeed('Session exported (offline)');
+        output.writeln();
+        output.printTable({
+          columns: [
+            { key: 'property', header: 'Property', width: 18 },
+            { key: 'value', header: 'Value', width: 40 }
+          ],
+          data: [
+            { property: 'Session ID', value: session.id },
+            { property: 'Output File', value: absolutePath },
+            { property: 'Format', value: exportFormat.toUpperCase() + ' (direct)' },
+            { property: 'Tasks Completed', value: session.tasksCompleted },
+            { property: 'Patterns Learned', value: session.patternsLearned },
+            { property: 'File Size', value: formatSize(content.length) }
+          ]
+        });
+
+        output.writeln();
+        output.printSuccess(`Session exported to ${outputPath}`);
+        output.printWarning('Note: agent and task state requires MCP for full export.');
+
+        return { success: true, data: { sessionId: session.id, outputPath, format: exportFormat, size: content.length } };
+      } catch (directError) {
+        if (error instanceof MCPClientError) {
+          output.printError(`Error: ${error.message}`);
+        } else {
+          output.printError(`Unexpected error: ${String(error)}`);
+        }
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
