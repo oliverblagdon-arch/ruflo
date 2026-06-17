@@ -188,6 +188,37 @@ async function checkMemoryDatabase(): Promise<HealthCheck> {
   return { name: 'Memory Database', status: 'warn', message: 'Not initialized', fix: 'claude-flow memory configure --backend hybrid' };
 }
 
+// Check offline readiness — verifies the local sqlite DB is accessible so
+// offline fallbacks in every MCP-backed command will actually return data
+// rather than empty results. This is the companion check to Memory Database
+// that validates the read path (not just file existence).
+async function checkOfflineReadiness(): Promise<HealthCheck> {
+  try {
+    const { getDirectStats } = await import('../memory/memory-initializer.js');
+    const stats = await getDirectStats();
+    if (!stats.success) {
+      return {
+        name: 'Offline Readiness',
+        status: 'warn',
+        message: `Local DB found but unreadable: ${stats.error ?? 'unknown error'}`,
+        fix: 'claude-flow memory configure --backend hybrid',
+      };
+    }
+    return {
+      name: 'Offline Readiness',
+      status: 'pass',
+      message: `Local DB readable — ${stats.totalEntries.toLocaleString()} entries (offline fallbacks functional)`,
+    };
+  } catch (err) {
+    return {
+      name: 'Offline Readiness',
+      status: 'warn',
+      message: 'Local DB not accessible — offline fallbacks will return empty results',
+      fix: 'claude-flow memory configure --backend hybrid  # initialises the local sqlite DB',
+    };
+  }
+}
+
 // Check API keys (env var presence only — no network call)
 async function checkApiKeys(): Promise<HealthCheck> {
   const keys = ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'OPENAI_API_KEY'];
@@ -874,6 +905,7 @@ export const doctorCommand: Command = {
       checkConfigFile,
       checkDaemonStatus,
       checkMemoryDatabase,
+      checkOfflineReadiness,
       checkApiKeys,
       checkAnthropicApiKeyValidity,
       checkMcpServers,
@@ -895,6 +927,7 @@ export const doctorCommand: Command = {
       'config': checkConfigFile,
       'daemon': checkDaemonStatus,
       'memory': checkMemoryDatabase,
+      'offline': checkOfflineReadiness,
       'api': checkApiKeys,
       'api-key': checkAnthropicApiKeyValidity,
       'anthropic': checkAnthropicApiKeyValidity,
