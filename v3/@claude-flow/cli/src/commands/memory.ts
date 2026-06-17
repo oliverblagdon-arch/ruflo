@@ -1339,7 +1339,8 @@ const exportCommand: Command = {
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     const outputPath = ctx.flags.output as string;
-    const format = ctx.flags.format as string || 'json';
+    const format = (ctx.flags.format as string) || 'json';
+    const namespace = ctx.flags.namespace as string | undefined;
 
     if (!outputPath) {
       output.printError('Output path is required. Use --output or -o');
@@ -1348,20 +1349,17 @@ const exportCommand: Command = {
 
     output.printInfo(`Exporting memory to ${outputPath}...`);
 
+    // Try MCP first; fall back to direct sqlite read for JSON/CSV
     try {
       const result = await callMCPTool<{
         outputPath: string;
         format: string;
-        exported: {
-          entries: number;
-          vectors: number;
-          patterns: number;
-        };
+        exported: { entries: number; vectors: number; patterns: number };
         fileSize: string;
       }>('memory_export', {
         outputPath,
         format,
-        namespace: ctx.flags.namespace,
+        namespace,
         includeVectors: ctx.flags.includeVectors ?? true,
       });
 
@@ -1374,13 +1372,62 @@ const exportCommand: Command = {
       ]);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Export error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      // MCP unavailable — export directly from sqlite (json/csv only)
+      if (format === 'binary') {
+        output.printError('Binary export requires MCP. Use --format json or --format csv for offline export.');
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
+
+      output.printInfo('MCP not available — exporting directly from database...');
+
+      try {
+        const { listEntries, resolveDbPath: _rdbExport } = await import('../memory/memory-initializer.js');
+        const dbPath = _rdbExport(ctx.flags.path as string | undefined);
+
+        // Fetch all entries in batches of 500
+        const allEntries: object[] = [];
+        let offset = 0;
+        const batchSize = 500;
+        while (true) {
+          const batch = await listEntries({ namespace, limit: batchSize, offset, dbPath });
+          if (!batch.success) {
+            output.printError(`Failed to read database: ${batch.error}`);
+            return { success: false, exitCode: 1 };
+          }
+          allEntries.push(...batch.entries);
+          if (batch.entries.length < batchSize) break;
+          offset += batchSize;
+        }
+
+        const fs = await import('fs');
+        let content: string;
+        if (format === 'csv') {
+          const header = 'key,namespace,value,tags,created_at,updated_at,access_count';
+          const rows = allEntries.map((e: any) =>
+            [e.key, e.namespace, JSON.stringify(e.value), (e.tags || []).join('|'), e.createdAt, e.updatedAt, e.accessCount]
+              .map(f => `"${String(f ?? '').replace(/"/g, '""')}"`).join(',')
+          );
+          content = [header, ...rows].join('\n');
+        } else {
+          content = JSON.stringify({ exported: new Date().toISOString(), entries: allEntries }, null, 2);
+        }
+
+        fs.writeFileSync(outputPath, content, 'utf8');
+        const fileSize = Buffer.byteLength(content, 'utf8');
+
+        output.printSuccess(`Exported to ${outputPath}`);
+        output.printList([
+          `Entries: ${allEntries.length}`,
+          `Format: ${format} (direct)`,
+          `File size: ${(fileSize / 1024).toFixed(1)} KB`
+        ]);
+
+        return { success: true, data: { outputPath, format, exported: { entries: allEntries.length } } };
+      } catch (directError) {
+        output.printError(`Export failed: ${directError instanceof Error ? directError.message : String(directError)}`);
+        return { success: false, exitCode: 1 };
+      }
     }
   }
 };
