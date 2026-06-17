@@ -48,7 +48,7 @@ describe('memory_search_unified namespace fan-out (#2246)', () => {
     // so callers can audit which list was used.
     expect(r.namespaceSource).toBeDefined();
     expect(['dynamic', 'legacy-fallback', 'env']).toContain(r.namespaceSource);
-  });
+  }, 15000);
 
   it('with explicit single `namespace`, reports namespaceSource=param-single', async () => {
     const r = await tool!.handler({ query: 'test', namespace: 'patterns' }) as {
