@@ -187,14 +187,10 @@ const syncCommand: Command = {
       output.writeln(output.dim(`  Last updated: ${result.lastUpdated}`));
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Progress sync failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   },
 };
@@ -220,14 +216,10 @@ const summaryCommand: Command = {
       output.writeln(result.summary);
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Summary fetch failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   },
 };

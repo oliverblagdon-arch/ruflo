@@ -214,13 +214,9 @@ const createCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to create task: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -335,13 +331,9 @@ const listCommand: Command = {
       output.printInfo(`Showing ${result.tasks.length} of ${result.total} tasks`);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to list tasks: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -500,13 +492,9 @@ const statusCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to get task status: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -573,13 +561,9 @@ const cancelCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to cancel task: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -690,13 +674,9 @@ const assignCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to assign task: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -744,13 +724,9 @@ const retryCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to retry task: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };

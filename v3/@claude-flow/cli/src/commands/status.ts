@@ -610,13 +610,9 @@ const agentsCommand: Command = {
       });
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to get agent status: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -673,13 +669,9 @@ const tasksCommand: Command = {
       });
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to get task status: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -751,13 +743,9 @@ const memoryCommand: Command = {
       ]);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to get memory status: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };

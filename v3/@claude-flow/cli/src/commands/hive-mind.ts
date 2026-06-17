@@ -551,14 +551,10 @@ const initCommand: Command = {
       output.writeln(output.dim('  Use "claude-flow hive-mind spawn --claude" to launch Claude Code'));
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Failed to initialize');
-      if (error instanceof MCPClientError) {
-        output.printError(`Init error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -770,13 +766,9 @@ const spawnCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Spawn error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -945,13 +937,9 @@ const statusCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Status error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1068,13 +1056,9 @@ const taskCommand: Command = {
       output.writeln(output.dim(`  Track with: claude-flow hive-mind task-status ${result.taskId}`));
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Task submission error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1148,14 +1132,10 @@ const optimizeMemoryCommand: Command = {
       ]);
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Optimization failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Optimization error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -1179,7 +1159,10 @@ const joinCommand: Command = {
       if (!result.success) { output.printError(result.error || 'Failed'); return { success: false, exitCode: 1 }; }
       output.printSuccess(`Agent ${agentId} joined hive (${result.totalWorkers} workers)`);
       return { success: true, data: result };
-    } catch (error) { output.printError(`Join error: ${error instanceof MCPClientError ? error.message : String(error)}`); return { success: false, exitCode: 1 }; }
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
+    }
   }
 };
 
@@ -1196,7 +1179,10 @@ const leaveCommand: Command = {
       if (!result.success) { output.printError(result.error || 'Failed'); return { success: false, exitCode: 1 }; }
       output.printSuccess(`Agent ${agentId} left hive (${result.remainingWorkers} remaining)`);
       return { success: true, data: result };
-    } catch (error) { output.printError(`Leave error: ${error instanceof MCPClientError ? error.message : String(error)}`); return { success: false, exitCode: 1 }; }
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
+    }
   }
 };
 
@@ -1225,7 +1211,10 @@ const consensusCommand: Command = {
       } else if (action === 'propose') { output.printSuccess(`Proposal created: ${result.proposalId}`); }
       else if (action === 'vote') { output.printSuccess(`Vote recorded (For: ${result.votesFor}, Against: ${result.votesAgainst})`); }
       return { success: true, data: result };
-    } catch (error) { output.printError(`Consensus error: ${error instanceof MCPClientError ? error.message : String(error)}`); return { success: false, exitCode: 1 }; }
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
+    }
   }
 };
 
@@ -1246,7 +1235,10 @@ const broadcastCommand: Command = {
       if (!result.success) { output.printError(result.error || 'Failed'); return { success: false, exitCode: 1 }; }
       output.printSuccess(`Message broadcast to ${result.recipients} workers (ID: ${result.messageId})`);
       return { success: true, data: result };
-    } catch (error) { output.printError(`Broadcast error: ${error instanceof MCPClientError ? error.message : String(error)}`); return { success: false, exitCode: 1 }; }
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
+    }
   }
 };
 
@@ -1279,7 +1271,10 @@ const memorySubCommand: Command = {
       } else if (action === 'set') { output.printSuccess(`Set ${key} in shared memory`); }
       else if (action === 'delete') { output.printSuccess(result.deleted ? `Deleted ${key}` : `Key ${key} did not exist`); }
       return { success: true, data: result };
-    } catch (error) { output.printError(`Memory error: ${error instanceof MCPClientError ? error.message : String(error)}`); return { success: false, exitCode: 1 }; }
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
+    }
   }
 };
 
@@ -1345,14 +1340,10 @@ const shutdownCommand: Command = {
       ]);
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Shutdown failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Shutdown error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };

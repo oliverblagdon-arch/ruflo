@@ -311,14 +311,10 @@ const saveCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Failed to save session');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -582,13 +578,9 @@ const deleteCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to delete session: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };

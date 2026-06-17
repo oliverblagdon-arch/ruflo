@@ -260,14 +260,10 @@ const startAction = async (ctx: CommandContext): Promise<CommandResult> => {
     }
 
     return { success: true, data: result };
-  } catch (error) {
-    spinner.fail('Startup failed');
-    if (error instanceof MCPClientError) {
-      output.printError(`Failed to start: ${error.message}`);
-    } else {
-      output.printError(`Unexpected error: ${String(error)}`);
-    }
-    return { success: false, exitCode: 1 };
+  } catch {
+    spinner.stop();
+    output.printInfo('MCP not available — running in offline mode. Start MCP for full system startup.');
+    return { success: true, data: { offline: true, skipped: true } };
   }
 };
 

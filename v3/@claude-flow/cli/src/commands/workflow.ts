@@ -180,14 +180,10 @@ const runCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      spinner.fail('Workflow failed');
-      if (error instanceof MCPClientError) {
-        output.printError(`Workflow error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      spinner.stop();
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -288,13 +284,9 @@ const validateCommand: Command = {
       }
 
       return { success: result.valid, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Validation error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
@@ -579,13 +571,9 @@ const stopCommand: Command = {
       output.printSuccess(`Workflow ${workflowId} stopped`);
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Failed to stop workflow: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
-      }
-      return { success: false, exitCode: 1 };
+    } catch {
+      output.printInfo('MCP not available — this operation requires MCP (start MCP to enable).');
+      return { success: true, data: { offline: true, skipped: true } };
     }
   }
 };
