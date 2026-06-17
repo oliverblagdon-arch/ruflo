@@ -96,6 +96,12 @@ export class CommandParser {
         description: 'Enable interactive mode',
         type: 'boolean',
         default: true
+      },
+      {
+        name: 'offline',
+        description: 'Run in offline mode — skip MCP calls and use local fallbacks',
+        type: 'boolean',
+        default: false
       }
     ];
   }

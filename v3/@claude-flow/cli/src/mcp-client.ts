@@ -175,6 +175,11 @@ export async function callMCPTool<T = unknown>(
   input: Record<string, unknown> = {},
   context?: Record<string, unknown>
 ): Promise<T> {
+  // Honour --offline / CLAUDE_FLOW_OFFLINE: skip all MCP calls so local fallbacks engage
+  if (process.env.CLAUDE_FLOW_OFFLINE === 'true') {
+    throw new MCPClientError(`Offline mode — MCP tool '${toolName}' skipped`, toolName);
+  }
+
   // Look up tool in registry
   const tool = TOOL_REGISTRY.get(toolName);
 

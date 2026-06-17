@@ -113,6 +113,11 @@ export class CLI {
         this.output.setColorEnabled(false);
       }
 
+      if (flags.offline) {
+        process.env.CLAUDE_FLOW_OFFLINE = 'true';
+        this.output.printInfo('Running in offline mode — MCP calls skipped, using local fallbacks.');
+      }
+
       // Set verbosity level based on flags
       if (flags.quiet) {
         this.output.setVerbosity('quiet');
