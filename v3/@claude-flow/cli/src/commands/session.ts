@@ -830,17 +830,18 @@ const importCommand: Command = {
     const spinner = output.createSpinner({ text: 'Importing session...' });
     spinner.start();
 
+    let _importedData: unknown;
     try {
       const content = fs.readFileSync(absolutePath, 'utf-8');
-      let data: unknown;
 
       // Parse based on extension
       if (absolutePath.endsWith('.yaml') || absolutePath.endsWith('.yml')) {
         // Simple YAML parsing (basic implementation)
-        data = JSON.parse(content); // Would need proper YAML parser
+        _importedData = JSON.parse(content); // Would need proper YAML parser
       } else {
-        data = JSON.parse(content);
+        _importedData = JSON.parse(content);
       }
+      const data = _importedData;
 
       const result = await callMCPTool<{
         sessionId: string;
@@ -891,14 +892,74 @@ const importCommand: Command = {
       return { success: true, data: result };
     } catch (error) {
       spinner.fail('Failed to import session');
-      if (error instanceof MCPClientError) {
-        output.printError(`Error: ${error.message}`);
-      } else if (error instanceof SyntaxError) {
+
+      // MCP unavailable — write session record directly to local sqlite
+      if (error instanceof SyntaxError) {
         output.printError('Invalid file format. Expected JSON or YAML.');
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
+      output.printInfo('MCP not available — writing session to local database...');
+      try {
+        const parsedData: any = _importedData;
+        // Accept both our own export format and raw session objects
+        const sessionData = parsedData?.session ?? parsedData;
+        const newId = sessionData?.id ?? `session-imported-${Date.now()}`;
+        const stateJson = JSON.stringify(sessionData);
+
+        const { resolveDbPath: _rdbImp } = await import('../memory/memory-initializer.js');
+        const initSqlJs = (await import('sql.js')).default;
+        const SQL = await initSqlJs();
+        const dbPath = _rdbImp(undefined);
+        const fsSync = await import('fs');
+
+        let db: ReturnType<typeof SQL.Database>;
+        if (fsSync.existsSync(dbPath)) {
+          const buf = fsSync.readFileSync(dbPath);
+          db = new SQL.Database(buf);
+        } else {
+          db = new SQL.Database();
+        }
+
+        const now = Date.now();
+        db.run(
+          `INSERT OR REPLACE INTO sessions (id, state, status, tasks_completed, patterns_learned, created_at, updated_at)
+           VALUES (?, ?, 'active', ?, ?, ?, ?)`,
+          [newId, stateJson, sessionData?.tasksCompleted ?? 0, sessionData?.patternsLearned ?? 0, now, now]
+        );
+
+        const dbData = db.export();
+        fsSync.writeFileSync(dbPath, Buffer.from(dbData));
+        db.close();
+
+        spinner.succeed('Session imported (offline)');
+        output.writeln();
+        output.printTable({
+          columns: [
+            { key: 'property', header: 'Property', width: 20 },
+            { key: 'value', header: 'Value', width: 35 }
+          ],
+          data: [
+            { property: 'Session ID', value: newId },
+            { property: 'Name', value: sessionName || '-' },
+            { property: 'Source File', value: path.basename(absolutePath) },
+            { property: 'Memory Entries', value: 0 },
+            { property: 'Activated', value: 'No (requires MCP)' }
+          ]
+        });
+
+        output.writeln();
+        output.printSuccess(`Session written to local DB: ${newId}`);
+        output.printWarning('Full activation (agents, tasks) requires MCP. Run: claude-flow session restore ' + newId);
+
+        if (ctx.flags.format === 'json') {
+          output.printJson({ sessionId: newId, name: sessionName, activated: false });
+        }
+
+        return { success: true, data: { sessionId: newId, activated: false } };
+      } catch (directError) {
+        output.printError(`Import failed: ${directError instanceof Error ? directError.message : String(directError)}`);
+        return { success: false, exitCode: 1 };
+      }
     }
   }
 };
@@ -952,14 +1013,47 @@ const currentCommand: Command = {
       });
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printWarning('No active session');
-        output.printInfo('Start a session with "claude-flow start"');
-        return { success: true, data: { active: false } };
+    } catch {
+      // MCP unavailable — show most recent session from local DB
+      try {
+        const { getDirectSessions } = await import('../memory/memory-initializer.js');
+        const direct = await getDirectSessions({ status: 'active', limit: 1 });
+        if (direct.sessions.length === 0) {
+          output.printWarning('No active session (offline)');
+          output.printInfo('Start a session with "claude-flow start"');
+          return { success: true, data: { active: false } };
+        }
+        const s = direct.sessions[0];
+
+        if (ctx.flags.format === 'json') {
+          output.printJson(s);
+          return { success: true, data: s };
+        }
+
+        output.writeln();
+        output.writeln(output.bold('Current Session') + output.dim(' (offline)'));
+        output.writeln();
+        output.printTable({
+          columns: [
+            { key: 'property', header: 'Property', width: 18 },
+            { key: 'value', header: 'Value', width: 35 }
+          ],
+          data: [
+            { property: 'Session ID', value: s.id },
+            { property: 'Status', value: formatStatus(s.status as 'active' | 'saved' | 'archived') },
+            { property: 'Project Path', value: s.projectPath ?? '-' },
+            { property: 'Branch', value: s.branch ?? '-' },
+            { property: 'Tasks Completed', value: s.tasksCompleted },
+            { property: 'Patterns Learned', value: s.patternsLearned },
+            { property: 'Last Updated', value: formatDate(s.updatedAt) }
+          ]
+        });
+
+        return { success: true, data: s };
+      } catch (directError) {
+        output.printError(`Unexpected error: ${directError instanceof Error ? directError.message : String(directError)}`);
+        return { success: false, exitCode: 1 };
       }
-      output.printError(`Unexpected error: ${String(error)}`);
-      return { success: false, exitCode: 1 };
     }
   }
 };
