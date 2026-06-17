@@ -1489,13 +1489,39 @@ const metricsCommand: Command = {
       }
 
       return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof MCPClientError) {
-        output.printError(`Metrics error: ${error.message}`);
-      } else {
-        output.printError(`Unexpected error: ${String(error)}`);
+    } catch {
+      output.printInfo('MCP not available — computing metrics from local data (offline)...');
+      try {
+        const { getDirectStats, getDirectSessions } = await import('../memory/memory-initializer.js');
+        const [stats, sessions] = await Promise.all([getDirectStats(), getDirectSessions({ limit: 1000 })]);
+        const totalMemory = stats?.totalEntries ?? 0;
+        const totalPatterns = stats?.namespaces?.find((n: { namespace: string }) => n.namespace === 'patterns')?.count ?? 0;
+        const totalSessions = sessions?.total ?? 0;
+        const activeSessions = sessions?.sessions?.filter((s: { status: string }) => s.status === 'active').length ?? 0;
+        const dbSizeKB = stats?.dbSizeBytes != null ? Math.round(stats.dbSizeBytes / 1024) : null;
+
+        output.writeln(output.bold('\n📊 Hook Metrics (offline)'));
+        output.printBox([
+          `Total Memory Entries : ${totalMemory}`,
+          `Patterns Stored      : ${totalPatterns}`,
+          `Total Sessions       : ${totalSessions}`,
+          `Active Sessions      : ${activeSessions}`,
+          `DB Size              : ${dbSizeKB != null ? `${dbSizeKB} KB` : 'N/A'}`,
+        ].join('\n'), 'Local Metrics');
+
+        if (stats?.namespaces && stats.namespaces.length > 0) {
+          output.writeln(output.bold('\nMemory by Namespace'));
+          for (const ns of stats.namespaces) {
+            output.writeln(`  ${ns.namespace.padEnd(20)} ${ns.count}`);
+          }
+        }
+
+        output.printWarning('Routing accuracy, command success rates, and neural metrics require MCP. Start MCP for full metrics.');
+        return { success: true, data: { offline: true, totalMemory, totalPatterns, totalSessions } };
+      } catch (fallbackError) {
+        output.printError(`Metrics unavailable: ${String(fallbackError)}`);
+        return { success: false, exitCode: 1 };
       }
-      return { success: false, exitCode: 1 };
     }
   }
 };
