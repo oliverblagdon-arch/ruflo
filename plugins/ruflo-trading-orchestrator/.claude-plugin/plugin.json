@@ -1,0 +1,18 @@
+{
+  "name": "ruflo-trading-orchestrator",
+  "version": "0.1.0",
+  "description": "End-to-end AI trading orchestration — ties ruflo-market-data ingestion and ruflo-neural-trader (portfolio CG solver, signed backtest artifacts, typed risk-gate pipeline) into one pipeline: ingest → strategy/signals → risk gate → paper execution → backtest.",
+  "keywords": [
+    "ruflo",
+    "trading",
+    "orchestration",
+    "ohlcv",
+    "backtest",
+    "risk-gate",
+    "paper-trading",
+    "portfolio-optimization",
+    "namespace-routing"
+  ],
+  "author": "Ruflo",
+  "license": "MIT"
+}
