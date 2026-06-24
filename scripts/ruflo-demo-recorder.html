@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ruflo Demo Recorder</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: system-ui, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; border-radius: 4px; }
+  #controls {
+    margin-top: 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  button {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 6px;
+    background: #6c47ff;
+    color: #fff;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  button:hover { background: #5535dd; }
+  button:disabled { background: #444; cursor: default; }
+  #status {
+    font-size: 14px;
+    color: #aaa;
+    min-width: 220px;
+  }
+  #progress-bar {
+    width: 640px;
+    height: 4px;
+    background: #222;
+    border-radius: 2px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  #progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6c47ff, #00d2ff);
+    width: 0%;
+    transition: width 0.3s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="1280" height="720"></canvas>
+<div id="progress-bar"><div id="progress-fill"></div></div>
+<div id="controls">
+  <button id="btn">▶ Record 60s Demo</button>
+  <span id="status">Ready — click to record</span>
+</div>
+
+<script>
+const DURATION = 60; // seconds
+
+// ─── Canvas setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// ─── Colour palette ─────────────────────────────────────────────────────────
+const C = {
+  bg:       '#0a0a12',
+  panel:    '#12121e',
+  border:   '#2a2a3e',
+  accent:   '#6c47ff',
+  accent2:  '#00d2ff',
+  green:    '#23d18b',
+  orange:   '#ffaa2e',
+  red:      '#ff5555',
+  text:     '#e2e2f0',
+  muted:    '#6b6b8a',
+  glow:     'rgba(108,71,255,0.15)',
+};
+
+// ─── Utility ─────────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function ease(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function text(str, x, y, opts = {}) {
+  const { size = 14, color = C.text, align = 'left', weight = 'normal', font = 'monospace' } = opts;
+  ctx.font = `${weight} ${size}px ${font}`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.fillText(str, x, y);
+}
+
+function glowText(str, x, y, opts = {}) {
+  const { size = 16, color = C.accent, blur = 12, weight = '600', font = 'system-ui, sans-serif' } = opts;
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  text(str, x, y, { size, color, weight, font, ...opts });
+  ctx.restore();
+}
+
+// ─── Scene definitions ───────────────────────────────────────────────────────
+// Each scene: { start, end, draw(t) } where t=0..1 within scene
+
+const scenes = [];
+
+function addScene(start, end, draw) {
+  scenes.push({ start, end, draw });
+}
+
+// ── Scene 0 (0-6s): Title card ───────────────────────────────────────────────
+addScene(0, 6, (t) => {
+  // Background gradient
+  const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, H);
+  g.addColorStop(0, '#1a0a3e');
+  g.addColorStop(1, C.bg);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Particle grid
+  ctx.save();
+  ctx.globalAlpha = 0.08 + 0.04 * Math.sin(t * Math.PI * 4);
+  for (let i = 0; i < W; i += 60) {
+    for (let j = 0; j < H; j += 60) {
+      ctx.beginPath();
+      ctx.arc(i, j, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = C.accent;
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Logo circle
+  const logoT = clamp((t - 0.05) / 0.3, 0, 1);
+  const logoScale = easeOut(logoT);
+  ctx.save();
+  ctx.translate(W/2, H/2 - 40);
+  ctx.scale(logoScale, logoScale);
+  const lg = ctx.createRadialGradient(0, 0, 0, 0, 0, 60);
+  lg.addColorStop(0, '#8a6fff');
+  lg.addColorStop(1, C.accent);
+  ctx.beginPath();
+  ctx.arc(0, 0, 52, 0, Math.PI * 2);
+  ctx.fillStyle = lg;
+  ctx.shadowColor = C.accent;
+  ctx.shadowBlur = 40;
+  ctx.fill();
+  // R letter
+  ctx.font = 'bold 52px system-ui';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(255,255,255,0.5)';
+  ctx.shadowBlur = 10;
+  ctx.fillText('R', 0, 2);
+  ctx.restore();
+
+  // Title
+  const titleT = clamp((t - 0.2) / 0.35, 0, 1);
+  ctx.globalAlpha = easeOut(titleT);
+  ctx.shadowColor = C.accent;
+  ctx.shadowBlur = 20;
+  ctx.font = 'bold 64px system-ui, sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('Ruflo', W/2, H/2 + 60);
+  ctx.shadowBlur = 0;
+
+  // Tagline
+  const tagT = clamp((t - 0.4) / 0.3, 0, 1);
+  ctx.globalAlpha = easeOut(tagT);
+  ctx.font = '22px system-ui';
+  ctx.fillStyle = C.accent2;
+  ctx.fillText('Enterprise AI Agent Orchestration', W/2, H/2 + 100);
+
+  ctx.font = '16px monospace';
+  ctx.fillStyle = C.muted;
+  ctx.fillText('claude-flow v3.11  ·  60+ Agents  ·  314 MCP Tools', W/2, H/2 + 132);
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+});
+
+// ── Scene 1 (6-14s): Agent swarm visualization ───────────────────────────────
+const AGENTS = [
+  { name: 'coordinator', role: 'Orchestrator', color: '#6c47ff', x: 0, y: 0 },
+  { name: 'architect',   role: 'Architect',    color: '#00d2ff', x: 0, y: 0 },
+  { name: 'coder',       role: 'Coder',        color: '#23d18b', x: 0, y: 0 },
+  { name: 'tester',      role: 'Tester',       color: '#ffaa2e', x: 0, y: 0 },
+  { name: 'reviewer',    role: 'Reviewer',     color: '#ff5555', x: 0, y: 0 },
+  { name: 'security',    role: 'Security',     color: '#ff69b4', x: 0, y: 0 },
+];
+const CENTER = { x: W/2, y: H/2 - 20 };
+const RING_R = 200;
+
+AGENTS.forEach((a, i) => {
+  const angle = (i / AGENTS.length) * Math.PI * 2 - Math.PI / 2;
+  a.x = CENTER.x + RING_R * Math.cos(angle);
+  a.y = CENTER.y + RING_R * Math.sin(angle);
+});
+
+addScene(6, 14, (t) => {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Section title
+  const titleT = clamp(t / 0.15, 0, 1);
+  ctx.globalAlpha = easeOut(titleT);
+  glowText('Multi-Agent Swarm  ·  Hierarchical Topology', W/2, 60,
+    { size: 24, color: C.accent, align: 'center', font: 'system-ui, sans-serif', weight: '600' });
+  text('6 concurrent agents coordinating in real-time', W/2, 90,
+    { size: 15, color: C.muted, align: 'center' });
+  ctx.globalAlpha = 1;
+
+  // Draw connections
+  const connT = clamp((t - 0.1) / 0.3, 0, 1);
+  AGENTS.forEach((a, i) => {
+    AGENTS.forEach((b, j) => {
+      if (j <= i) return;
+      ctx.save();
+      ctx.globalAlpha = 0.15 * connT;
+      ctx.strokeStyle = C.accent;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.restore();
+    });
+  });
+
+  // Animated data pulses on connections
+  const pulse = (t * 3) % 1;
+  AGENTS.forEach((a, i) => {
+    const b = AGENTS[(i + 1) % AGENTS.length];
+    const px = lerp(a.x, b.x, pulse);
+    const py = lerp(a.y, b.y, pulse);
+    ctx.save();
+    ctx.globalAlpha = 0.7 * connT;
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.fillStyle = C.accent2;
+    ctx.shadowColor = C.accent2;
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // Center hub
+  const hubT = clamp((t - 0.05) / 0.25, 0, 1);
+  ctx.save();
+  ctx.globalAlpha = easeOut(hubT);
+  const hg = ctx.createRadialGradient(CENTER.x, CENTER.y, 0, CENTER.x, CENTER.y, 36);
+  hg.addColorStop(0, '#8a6fff');
+  hg.addColorStop(1, C.accent);
+  ctx.beginPath();
+  ctx.arc(CENTER.x, CENTER.y, 36, 0, Math.PI * 2);
+  ctx.fillStyle = hg;
+  ctx.shadowColor = C.accent;
+  ctx.shadowBlur = 30;
+  ctx.fill();
+  ctx.font = 'bold 15px system-ui';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowBlur = 0;
+  ctx.fillText('HIVE', CENTER.x, CENTER.y - 7);
+  ctx.fillText('MIND', CENTER.x, CENTER.y + 9);
+  ctx.restore();
+
+  // Agent nodes
+  AGENTS.forEach((a, i) => {
+    const aT = clamp((t - 0.08 - i * 0.04) / 0.25, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = easeOut(aT);
+    ctx.shadowColor = a.color;
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, 28, 0, Math.PI * 2);
+    ctx.fillStyle = C.panel;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = a.color;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = a.color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(a.role.toUpperCase(), a.x, a.y);
+    // Status dot
+    const active = Math.sin(t * 8 + i) > 0.2;
+    ctx.beginPath();
+    ctx.arc(a.x + 20, a.y - 20, 5, 0, Math.PI * 2);
+    ctx.fillStyle = active ? C.green : C.muted;
+    ctx.shadowColor = C.green;
+    ctx.shadowBlur = active ? 8 : 0;
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // Stats bar bottom
+  const statsT = clamp((t - 0.6) / 0.2, 0, 1);
+  ctx.globalAlpha = easeOut(statsT);
+  const stats = [
+    { label: 'Agents Active', val: '6 / 8' },
+    { label: 'Tasks Running', val: '14' },
+    { label: 'Consensus', val: 'Raft' },
+    { label: 'Memory', val: 'Hybrid' },
+  ];
+  stats.forEach((s, i) => {
+    const sx = 160 + i * 240, sy = H - 80;
+    roundRect(sx - 80, sy - 30, 160, 52, 8);
+    ctx.fillStyle = C.panel;
+    ctx.fill();
+    ctx.strokeStyle = C.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = 'bold 20px system-ui';
+    ctx.fillStyle = C.accent2;
+    ctx.textAlign = 'center';
+    ctx.fillText(s.val, sx, sy - 2);
+    ctx.font = '12px monospace';
+    ctx.fillStyle = C.muted;
+    ctx.fillText(s.label, sx, sy + 17);
+  });
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+});
+
+// ── Scene 2 (14-24s): Terminal — live agent spawn ────────────────────────────
+const TERM_LINES = [
+  { t: 0.05, text: '$ npx ruflo swarm init --topology hierarchical --max-agents 8', color: C.green },
+  { t: 0.12, text: '  ✓ Swarm initialized  [topology=hierarchical, strategy=specialized]', color: C.muted },
+  { t: 0.20, text: '$ npx ruflo agent spawn --type coder --name "coder-1"', color: C.green },
+  { t: 0.26, text: '  ✓ Agent coder-1 spawned  [model=claude-sonnet-4-6, tier=3]', color: C.muted },
+  { t: 0.33, text: '$ npx ruflo agent spawn --type tester --name "tester-1"', color: C.green },
+  { t: 0.39, text: '  ✓ Agent tester-1 spawned  [model=claude-haiku-4-5, tier=2]', color: C.muted },
+  { t: 0.46, text: '$ npx ruflo task orchestrate --task "Build OAuth2 flow"', color: C.green },
+  { t: 0.52, text: '  ✓ Task routed → architect → coder-1 → tester-1 → reviewer', color: C.muted },
+  { t: 0.60, text: '  ⟳ architect: Designing OAuth2 endpoints...', color: C.accent2 },
+  { t: 0.68, text: '  ⟳ coder-1:   Implementing token refresh logic...', color: C.accent2 },
+  { t: 0.76, text: '  ⟳ tester-1:  Writing integration tests...', color: C.orange },
+  { t: 0.85, text: '  ✓ Pipeline complete  [3 agents, 4.2s, cost=$0.004]', color: C.green },
+  { t: 0.92, text: '  ✓ PR created  github.com/org/repo/pull/142', color: C.green },
+];
+
+addScene(14, 24, (t) => {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
+  glowText('CLI  ·  Agent Orchestration in Action', W/2, 55,
+    { size: 24, color: C.accent, align: 'center', font: 'system-ui', weight: '600' });
+
+  // Terminal window
+  const TX = 100, TY = 80, TW = W - 200, TH = H - 140;
+  roundRect(TX, TY, TW, TH, 10);
+  ctx.fillStyle = '#0d0d18';
+  ctx.fill();
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Title bar
+  roundRect(TX, TY, TW, 36, 10);
+  ctx.fillStyle = '#1a1a28';
+  ctx.fill();
+  ['#ff5f57','#febc2e','#28c840'].forEach((c, i) => {
+    ctx.beginPath();
+    ctx.arc(TX + 18 + i * 22, TY + 18, 7, 0, Math.PI * 2);
+    ctx.fillStyle = c;
+    ctx.fill();
+  });
+  text('ruflo — zsh', TX + TW/2, TY + 23, { size: 13, color: C.muted, align: 'center' });
+
+  // Lines
+  TERM_LINES.forEach((l, i) => {
+    const lineT = clamp((t - l.t) / 0.07, 0, 1);
+    ctx.globalAlpha = lineT;
+    text(l.text, TX + 20, TY + 58 + i * 30, { size: 14, color: l.color, font: 'monospace' });
+  });
+
+  // Cursor blink
+  const lastShown = TERM_LINES.filter(l => t > l.t).length;
+  if (lastShown < TERM_LINES.length && Math.floor(t * 4) % 2 === 0) {
+    const lx = TX + 20 + ctx.measureText(TERM_LINES[lastShown - 1]?.text ?? '').width + 2;
+    ctx.fillStyle = C.green;
+    ctx.fillRect(lx, TY + 43 + lastShown * 30, 9, 18);
+  }
+
+  ctx.globalAlpha = 1;
+});
+
+// ── Scene 3 (24-34s): Memory & Vector Search ─────────────────────────────────
+addScene(24, 34, (t) => {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  glowText('Hybrid Memory  ·  AgentDB + HNSW Vector Search', W/2, 55,
+    { size: 24, color: C.accent, align: 'center', font: 'system-ui', weight: '600' });
+  text('Semantic search across sessions · 384-dim embeddings · sql.js SQLite', W/2, 85,
+    { size: 14, color: C.muted, align: 'center' });
+
+  // Left panel — memory namespaces
+  const LP = { x: 80, y: 110, w: 360, h: H - 160 };
+  roundRect(LP.x, LP.y, LP.w, LP.h, 8);
+  ctx.fillStyle = C.panel;
+  ctx.fill();
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  text('NAMESPACES', LP.x + 16, LP.y + 28, { size: 12, color: C.muted, font: 'monospace' });
+
+  const ns = [
+    { name: 'collaboration', count: 142, color: C.accent },
+    { name: 'patterns',      count: 891, color: C.accent2 },
+    { name: 'claude-memories',count: 67,  color: C.green },
+    { name: 'auto-memory',   count: 234,  color: C.orange },
+    { name: 'feedback',      count: 418,  color: '#ff69b4' },
+    { name: 'tasks',         count: 56,   color: C.muted },
+  ];
+  ns.forEach((n, i) => {
+    const ny = LP.y + 55 + i * 60;
+    const barT = clamp((t - 0.1 - i * 0.06) / 0.3, 0, 1);
+    // Row
+    roundRect(LP.x + 10, ny - 5, LP.w - 20, 48, 6);
+    ctx.fillStyle = '#0f0f1c';
+    ctx.fill();
+    ctx.strokeStyle = n.color + '44';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Bar
+    const bw = (LP.w - 40) * 0.7 * easeOut(barT);
+    ctx.fillStyle = n.color + '33';
+    roundRect(LP.x + 15, ny + 16, bw, 8, 4);
+    ctx.fill();
+    ctx.fillStyle = n.color;
+    roundRect(LP.x + 15, ny + 16, bw * (n.count / 900), 8, 4);
+    ctx.fill();
+    // Labels
+    text(n.name, LP.x + 18, ny + 11, { size: 13, color: n.color, font: 'monospace' });
+    text(`${n.count} vectors`, LP.x + LP.w - 90, ny + 11, { size: 11, color: C.muted, font: 'monospace' });
+  });
+
+  // Right panel — search results
+  const RP = { x: 460, y: 110, w: W - 540, h: H - 160 };
+  roundRect(RP.x, RP.y, RP.w, RP.h, 8);
+  ctx.fillStyle = C.panel;
+  ctx.fill();
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  text('SEMANTIC SEARCH', RP.x + 16, RP.y + 28, { size: 12, color: C.muted, font: 'monospace' });
+
+  // Query box
+  const qT = clamp((t - 0.3) / 0.25, 0, 1);
+  roundRect(RP.x + 10, RP.y + 38, RP.w - 20, 38, 6);
+  ctx.fillStyle = '#0f0f1c';
+  ctx.fill();
+  ctx.strokeStyle = C.accent + '88';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  const query = '"authentication security patterns"';
+  const qVisible = query.slice(0, Math.floor(query.length * easeOut(qT)));
+  text('> ' + qVisible, RP.x + 18, RP.y + 63, { size: 14, color: C.green, font: 'monospace' });
+
+  // Results
+  const results = [
+    { score: 0.97, ns: 'patterns', preview: 'OAuth2 PKCE flow with token rotation' },
+    { score: 0.94, ns: 'collaboration', preview: 'JWT signing key rotation strategy' },
+    { score: 0.91, ns: 'claude-memories', preview: 'bcrypt password hashing, rounds=12' },
+    { score: 0.88, ns: 'feedback', preview: 'Input validation at API boundaries' },
+    { score: 0.85, ns: 'auto-memory', preview: 'SQL injection prevention patterns' },
+  ];
+  results.forEach((r, i) => {
+    const ry = RP.y + 95 + i * 72;
+    const rT = clamp((t - 0.45 - i * 0.07) / 0.2, 0, 1);
+    ctx.globalAlpha = easeOut(rT);
+    roundRect(RP.x + 10, ry, RP.w - 20, 60, 6);
+    ctx.fillStyle = '#0f0f1c';
+    ctx.fill();
+    ctx.strokeStyle = C.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Score bar
+    const sw = (RP.w - 40) * r.score;
+    ctx.fillStyle = C.accent + '22';
+    roundRect(RP.x + 15, ry + 44, RP.w - 30, 6, 3);
+    ctx.fill();
+    ctx.fillStyle = C.accent;
+    roundRect(RP.x + 15, ry + 44, sw, 6, 3);
+    ctx.fill();
+    text(`${(r.score * 100).toFixed(0)}%`, RP.x + 18, ry + 18, { size: 13, color: C.accent2, font: 'monospace' });
+    text(r.ns, RP.x + 75, ry + 18, { size: 12, color: C.muted, font: 'monospace' });
+    text(r.preview, RP.x + 18, ry + 38, { size: 13, color: C.text });
+  });
+  ctx.globalAlpha = 1;
+});
+
+// ── Scene 4 (34-44s): 3-tier model routing ───────────────────────────────────
+addScene(34, 44, (t) => {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  glowText('3-Tier Model Routing  ·  Cost-Optimized Dispatch', W/2, 55,
+    { size: 24, color: C.accent, align: 'center', font: 'system-ui', weight: '600' });
+
+  const tiers = [
+    {
+      tier: 'TIER 1',
+      handler: 'Deterministic Codemod',
+      latency: '~1 ms',
+      cost: '$0.00',
+      color: C.green,
+      tasks: ['var-to-const', 'remove-console', 'add-logging'],
+      icon: '⚡',
+    },
+    {
+      tier: 'TIER 2',
+      handler: 'Claude Haiku 4.5',
+      latency: '~500 ms',
+      cost: '$0.0002',
+      color: C.orange,
+      tasks: ['Simple Q&A', 'Format config', 'Summarize'],
+      icon: '☁',
+    },
+    {
+      tier: 'TIER 3',
+      handler: 'Claude Sonnet / Opus',
+      latency: '2–5 s',
+      cost: '$0.015',
+      color: C.accent,
+      tasks: ['Architecture', 'Security audit', 'Complex refactor'],
+      icon: '🧠',
+    },
+  ];
+
+  tiers.forEach((tier, i) => {
+    const tx = 80 + i * 380, ty = 110;
+    const tw = 350, th = H - 170;
+    const tT = clamp((t - 0.05 - i * 0.12) / 0.3, 0, 1);
+    ctx.globalAlpha = easeOut(tT);
+
+    roundRect(tx, ty, tw, th, 10);
+    const tg = ctx.createLinearGradient(tx, ty, tx, ty + th);
+    tg.addColorStop(0, tier.color + '18');
+    tg.addColorStop(1, C.panel);
+    ctx.fillStyle = tg;
+    ctx.fill();
+    ctx.strokeStyle = tier.color + '66';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Tier badge
+    roundRect(tx + 10, ty + 10, 80, 28, 14);
+    ctx.fillStyle = tier.color;
+    ctx.fill();
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'center';
+    ctx.fillText(tier.tier, tx + 50, ty + 29);
+
+    // Icon
+    ctx.font = '38px serif';
+    ctx.fillStyle = tier.color;
+    ctx.shadowColor = tier.color;
+    ctx.shadowBlur = 15;
+    ctx.fillText(tier.icon, tx + 270, ty + 40);
+    ctx.shadowBlur = 0;
+
+    ctx.textAlign = 'left';
+    text(tier.handler, tx + 16, ty + 78, { size: 18, color: tier.color, weight: '600', font: 'system-ui' });
+
+    // Metrics
+    const metrics = [
+      { label: 'Latency', val: tier.latency },
+      { label: 'Cost', val: tier.cost },
+    ];
+    metrics.forEach((m, j) => {
+      const my = ty + 108 + j * 48;
+      text(m.label, tx + 16, my, { size: 12, color: C.muted, font: 'monospace' });
+      text(m.val, tx + 16, my + 22, { size: 20, color: C.text, weight: '600', font: 'system-ui' });
+    });
+
+    // Tasks
+    text('EXAMPLE TASKS', tx + 16, ty + 215, { size: 11, color: C.muted, font: 'monospace' });
+    tier.tasks.forEach((task, j) => {
+      roundRect(tx + 10, ty + 225 + j * 44, tw - 20, 36, 6);
+      ctx.fillStyle = tier.color + '11';
+      ctx.fill();
+      ctx.strokeStyle = tier.color + '33';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      text(task, tx + 20, ty + 249 + j * 44, { size: 13, color: tier.color, font: 'monospace' });
+    });
+
+    // Usage bar
+    const usage = [0.08, 0.25, 0.67][i];
+    const bT = clamp((t - 0.4 - i * 0.08) / 0.25, 0, 1);
+    text('TRAFFIC', tx + 16, ty + th - 60, { size: 11, color: C.muted, font: 'monospace' });
+    roundRect(tx + 10, ty + th - 44, tw - 20, 14, 7);
+    ctx.fillStyle = C.border;
+    ctx.fill();
+    roundRect(tx + 10, ty + th - 44, (tw - 20) * usage * easeOut(bT), 14, 7);
+    ctx.fillStyle = tier.color;
+    ctx.fill();
+    text(`${(usage * 100).toFixed(0)}%`, tx + tw - 50, ty + th - 34, { size: 12, color: tier.color, font: 'monospace' });
+  });
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+});
+
+// ── Scene 5 (44-52s): MCP Tools dashboard ─────────────────────────────────────
+addScene(44, 52, (t) => {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  glowText('314 MCP Tools  ·  GitHub · Memory · Neural · Security', W/2, 55,
+    { size: 24, color: C.accent, align: 'center', font: 'system-ui', weight: '600' });
+
+  const CATS = [
+    { name: 'GitHub', tools: 48, color: '#6e40c9', icon: '⬡',
+      items: ['create_pull_request','push_files','list_commits','merge_pull_request'] },
+    { name: 'Memory', tools: 62, color: C.accent2, icon: '◈',
+      items: ['memory_search_unified','memory_store','memory_retrieve','memory_bridge_status'] },
+    { name: 'Neural', tools: 31, color: C.orange, icon: '◉',
+      items: ['neural_train','neural_predict','neural_patterns','model_optimize'] },
+    { name: 'Security', tools: 24, color: '#ff69b4', icon: '◆',
+      items: ['security_scan','cve_check','input_validate','audit_report'] },
+    { name: 'Swarm', tools: 38, color: C.green, icon: '✦',
+      items: ['swarm_init','agent_spawn','task_orchestrate','swarm_status'] },
+    { name: 'Performance', tools: 29, color: '#e040fb', icon: '◐',
+      items: ['benchmark_run','profile_memory','metrics_collect','perf_optimize'] },
+  ];
+
+  const colW = (W - 80) / 3;
+  const rowH = (H - 120) / 2;
+
+  CATS.forEach((cat, i) => {
+    const col = i % 3, row = Math.floor(i / 3);
+    const cx = 40 + col * colW, cy = 90 + row * rowH;
+    const cw = colW - 20, ch = rowH - 16;
+    const cT = clamp((t - 0.05 - i * 0.07) / 0.3, 0, 1);
+
+    ctx.globalAlpha = easeOut(cT);
+    roundRect(cx, cy, cw, ch, 8);
+    const g = ctx.createLinearGradient(cx, cy, cx, cy + ch);
+    g.addColorStop(0, cat.color + '18');
+    g.addColorStop(1, C.panel);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = cat.color + '55';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Icon + name
+    ctx.font = '28px serif';
+    ctx.fillStyle = cat.color;
+    ctx.shadowColor = cat.color;
+    ctx.shadowBlur = 10;
+    ctx.fillText(cat.icon, cx + 14, cy + 36);
+    ctx.shadowBlur = 0;
+    text(cat.name, cx + 50, cy + 26, { size: 18, color: cat.color, weight: '600', font: 'system-ui' });
+    text(`${cat.tools} tools`, cx + 50, cy + 46, { size: 12, color: C.muted, font: 'monospace' });
+
+    cat.items.forEach((item, j) => {
+      const iy = cy + 65 + j * 36;
+      roundRect(cx + 8, iy, cw - 16, 28, 5);
+      ctx.fillStyle = cat.color + '0d';
+      ctx.fill();
+      text(item, cx + 16, iy + 19, { size: 12, color: cat.color + 'cc', font: 'monospace' });
+    });
+  });
+  ctx.globalAlpha = 1;
+});
+
+// ── Scene 6 (52-60s): Stats + CTA ─────────────────────────────────────────────
+addScene(52, 60, (t) => {
+  const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, H);
+  g.addColorStop(0, '#1a0a3e');
+  g.addColorStop(1, C.bg);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Particle grid
+  ctx.save();
+  ctx.globalAlpha = 0.06 + 0.03 * Math.sin(t * Math.PI * 6);
+  for (let i = 0; i < W; i += 60) {
+    for (let j = 0; j < H; j += 60) {
+      ctx.beginPath();
+      ctx.arc(i, j, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = C.accent;
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Heading
+  const hT = clamp(t / 0.2, 0, 1);
+  ctx.globalAlpha = easeOut(hT);
+  glowText('Production-Ready AI Orchestration', W/2, 100,
+    { size: 32, color: '#fff', align: 'center', font: 'system-ui', weight: '700' });
+  glowText('Enterprise-grade from day one', W/2, 142,
+    { size: 20, color: C.accent2, align: 'center', font: 'system-ui', weight: '400' });
+  ctx.globalAlpha = 1;
+
+  // Stats grid
+  const STATS = [
+    { label: 'MCP Tools',     val: '314',    color: C.accent },
+    { label: 'Agent Types',   val: '60+',    color: C.accent2 },
+    { label: 'Hook Types',    val: '17',     color: C.green },
+    { label: 'Plugins',       val: '21',     color: C.orange },
+    { label: 'Git Commits',   val: '6 000+', color: '#ff69b4' },
+    { label: 'Consensus Modes','val': '5',    color: '#e040fb' },
+  ];
+  const sw = 180, sh = 90, sg = 20;
+  const totalW = 3 * sw + 2 * sg;
+  const sx0 = (W - totalW) / 2;
+
+  STATS.forEach((s, i) => {
+    const col = i % 3, row = Math.floor(i / 3);
+    const bx = sx0 + col * (sw + sg), by = 175 + row * (sh + 14);
+    const sT = clamp((t - 0.1 - i * 0.06) / 0.3, 0, 1);
+    ctx.globalAlpha = easeOut(sT);
+    roundRect(bx, by, sw, sh, 8);
+    ctx.fillStyle = C.panel;
+    ctx.fill();
+    ctx.strokeStyle = s.color + '55';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = 'bold 32px system-ui';
+    ctx.fillStyle = s.color;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = s.color;
+    ctx.shadowBlur = 12;
+    ctx.fillText(s.val, bx + sw/2, by + 48);
+    ctx.shadowBlur = 0;
+    ctx.font = '13px monospace';
+    ctx.fillStyle = C.muted;
+    ctx.fillText(s.label, bx + sw/2, by + 72);
+  });
+  ctx.textAlign = 'left';
+
+  // CTA
+  const ctaT = clamp((t - 0.65) / 0.2, 0, 1);
+  ctx.globalAlpha = easeOut(ctaT);
+
+  roundRect(W/2 - 200, H - 140, 400, 52, 26);
+  const bg = ctx.createLinearGradient(W/2 - 200, 0, W/2 + 200, 0);
+  bg.addColorStop(0, '#6c47ff');
+  bg.addColorStop(1, '#00d2ff');
+  ctx.fillStyle = bg;
+  ctx.shadowColor = C.accent;
+  ctx.shadowBlur = 20;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 20px system-ui';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.fillText('npx ruflo@latest init --wizard', W/2, H - 108);
+
+  ctx.font = '14px monospace';
+  ctx.fillStyle = C.muted;
+  ctx.fillText('github.com/ruvnet/claude-flow  ·  v3.11.0', W/2, H - 72);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+});
+
+// ─── Main render loop ────────────────────────────────────────────────────────
+let startTime = null;
+let animId = null;
+
+function drawFrame(elapsed) {
+  const t = Math.min(elapsed / DURATION, 1);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  scenes.forEach(({ start, end, draw }) => {
+    if (elapsed >= start && elapsed < end) {
+      const local = (elapsed - start) / (end - start);
+      draw(local);
+    }
+  });
+
+  // HUD — time + scene label
+  const sceneIdx = scenes.findIndex(s => elapsed >= s.start && elapsed < s.end);
+  const sceneNames = ['Title', 'Swarm', 'Terminal', 'Memory', 'Routing', 'MCP Tools', 'Stats'];
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  roundRect(16, 16, 200, 38, 6);
+  ctx.fill();
+  ctx.font = '12px monospace';
+  ctx.fillStyle = C.muted;
+  ctx.textAlign = 'left';
+  ctx.fillText(`${elapsed.toFixed(1)}s  /  ${DURATION}s  ·  ${sceneNames[sceneIdx] ?? ''}`, 26, 39);
+
+  document.getElementById('progress-fill').style.width = (t * 100) + '%';
+}
+
+// ─── Recording ───────────────────────────────────────────────────────────────
+document.getElementById('btn').addEventListener('click', async () => {
+  const btn = document.getElementById('btn');
+  const status = document.getElementById('status');
+  btn.disabled = true;
+  status.textContent = 'Starting recording…';
+
+  const stream = canvas.captureStream(30);
+  const recorder = new MediaRecorder(stream, {
+    mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : 'video/webm',
+    videoBitsPerSecond: 8_000_000,
+  });
+  const chunks = [];
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ruflo-demo-60s.webm';
+    a.click();
+    status.textContent = '✓ Downloaded ruflo-demo-60s.webm';
+    btn.disabled = false;
+    btn.textContent = '▶ Record Again';
+  };
+
+  recorder.start();
+  status.textContent = 'Recording…';
+
+  startTime = performance.now();
+
+  function frame(now) {
+    const elapsed = (now - startTime) / 1000;
+    drawFrame(elapsed);
+    if (elapsed < DURATION) {
+      const remaining = DURATION - elapsed;
+      status.textContent = `Recording… ${remaining.toFixed(1)}s remaining`;
+      animId = requestAnimationFrame(frame);
+    } else {
+      drawFrame(DURATION);
+      recorder.stop();
+      status.textContent = 'Processing…';
+    }
+  }
+  animId = requestAnimationFrame(frame);
+});
+
+// Preview on load (non-recording)
+(function preview() {
+  const start = performance.now();
+  function previewFrame(now) {
+    if (startTime !== null) return; // recording started
+    const t = ((now - start) / 1000) % DURATION;
+    drawFrame(t);
+    requestAnimationFrame(previewFrame);
+  }
+  requestAnimationFrame(previewFrame);
+})();
+</script>
+</body>
+</html>
